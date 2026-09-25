@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>バーコード / QRコード ツール（生成・読み取り）</title>
   <!-- Google Fontsの読み込み（起動高速化のため廃止しシステムフォントを使用） -->
 
@@ -42,17 +42,25 @@
       padding: 0;
     }
 
+    html {
+      -webkit-text-size-adjust: 100%;     /* 横向き時に iOS が勝手に文字を拡大しないように */
+      -webkit-tap-highlight-color: transparent;
+    }
+
     body {
       background-color: var(--base);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
       font-size: 13px;
       height: 100vh;
+      height: 100dvh;                     /* モバイルブラウザのアドレスバー分を除いた実表示高（対応ブラウザのみ） */
       display: flex;
       flex-direction: column;
       overflow: hidden;
       user-select: none;
     }
+
+    .sp-only, #dec-drop-hint .sp-only { display: none; }
 
     /* ── ヘッダー ── */
     header {
@@ -311,7 +319,6 @@
       gap: 8px;
       transition: border-color var(--transition-fast), transform var(--transition-normal), opacity var(--transition-normal);
       position: relative;
-      touch-action: none; /* Pointer Events用 */
     }
 
     .barcode-row:hover {
@@ -361,6 +368,7 @@
       justify-content: center;
       gap: 2px;
       padding: 0 4px;
+      touch-action: none; /* Pointer Events でドラッグするため、ハンドル上だけはブラウザのスクロールを止める */
     }
 
     .drag-handle:active {
@@ -2090,6 +2098,260 @@
       .cb-vs { justify-content: center; }
     }
 
+    /* ══════════════ スマホ最適化（iPhone / Android 共通） ══════════════ */
+
+    /* ── タッチ端末（マウスなし）: ホバーが張り付かないようにし、押しやすい大きさに ── */
+    @media (hover: none) and (pointer: coarse) {
+      /* :hover をタップ前の見た目に戻す（タップ後に色が残らないように） */
+      button:hover { background-color: var(--surface0); border-color: var(--surface1); }
+      .btn-primary:hover { background-color: var(--blue); }
+      .btn-today:hover { background-color: rgba(64, 160, 43, 0.15); border-color: var(--green); }
+      .btn-clear:hover { background-color: transparent; border-color: var(--surface1); }
+      .btn-action:hover { background-color: transparent; border-color: var(--surface0); }
+      .btn-delete:hover { background-color: transparent; color: var(--red); border-color: var(--surface0); }
+      .btn-fav:hover { color: var(--overlay); border-color: var(--surface0); background-color: transparent; }
+      .btn-small:hover { background-color: transparent; border-color: var(--surface1); }
+      .btn-toggle.on:hover { background-color: rgba(137, 180, 250, 0.18); border-color: var(--blue-light); }
+      .tab-btn:hover { background-color: transparent; color: var(--subtext); }
+      .tab-btn.active:hover { background-color: var(--blue); color: #ffffff; }
+      .modal-close:hover { background-color: transparent; }
+      .dd-button:hover { background-color: var(--crust); border-color: var(--surface1); }
+      .dd-item:hover { background-color: transparent; }
+      .dd-item.selected:hover { background-color: rgba(137, 180, 250, 0.13); }
+      .cb-item:hover { border-color: var(--surface0); background-color: var(--mantle); }
+      .cb-item.selected:hover { border-color: var(--blue-light); background-color: rgba(137, 180, 250, 0.10); }
+      .cb-chip:hover { border-color: var(--surface1); }
+      .cb-chip.on:hover { border-color: var(--blue); }
+      .barcode-row:hover { border-color: var(--surface0); }
+      .preset-item:hover { border-color: var(--surface0); }
+      .preset-text:hover { color: inherit; }
+      .header-link-btn:hover { color: var(--blue-light); }
+      .height-slider::-webkit-slider-thumb:hover { transform: none; background: var(--blue-light); }
+      #dec-right summary:hover { color: var(--subtext); background-color: transparent; }
+      .drag-handle:hover .drag-dot { background-color: var(--surface2); }
+      .cb-topbtn:hover, .cb-subbtn:hover, .cb-viewbtn:hover { border-color: var(--surface1); }
+
+      /* 押したときのフィードバックはホバーではなく :active で */
+      .cb-item:active { background-color: var(--surface0); }
+      .dd-item:active, .cb-chip:active { background-color: var(--surface0); }
+
+      /* タップ領域（指で押しやすい高さ） */
+      button { min-height: 36px; }
+      .header-link-btn, .cb-rename-btn, .toast .toast-btn, .cb-preset-del, .cb-mst { min-height: 0; }
+      .btn-delete, .btn-fav { width: 36px; }
+      .modal-close { width: 36px; }
+      .cb-rename-btn { width: 30px; height: 30px; }
+      .drag-handle { width: 28px; height: 36px; }
+      .cb-chip { padding: 7px 10px; font-size: 11.5px; }
+      .cb-chip.sep { padding: 7px 2px; }
+      .dd-item { padding: 9px 10px; }
+      .dd-item-name { font-size: 13px; }
+      .dd-item-hint { font-size: 11px; }
+      .cb-item { padding: 8px 10px; }
+      .preset-item { padding: 7px 6px 7px 12px; }
+      .preset-text { padding: 6px 0; }
+      #dec-right summary { padding: 10px; }
+      .setting-row { padding: 12px 2px; }
+      input[type="checkbox"] { width: 22px; height: 22px; }
+      input[type="color"] { width: 48px; height: 32px; }
+      .height-slider { height: 6px; }
+      .height-slider::-webkit-slider-thumb { width: 22px; height: 22px; }
+      .cb-squad-slot { min-height: 80px; }
+      .cb-fuse-node { padding: 6px 9px; }
+      .cb-toolbar select, .cb-toolbar input[type="text"], .cb-manual input[type="text"] { min-height: 36px; }
+      /* スクロール中に指が触れても行の並べ替えが始まらないよう、ハンドル以外は通常どおり */
+      .cb-log, .decoded-text, pre.dump, pre.matrix { -webkit-overflow-scrolling: touch; }
+    }
+
+    /* ── スマホ幅（縦持ちのスマートフォン） ── */
+    @media (max-width: 640px) {
+      /* iOS Safari はフォーカスした入力欄の文字が 16px 未満だと画面を自動ズームするので 16px にする */
+      input:not([type="checkbox"]):not([type="range"]):not([type="color"]):not([type="file"]),
+      textarea,
+      select { font-size: 16px; }
+      .barcode-input { min-height: 38px; padding: 6px 10px; }
+      .cb-toolbar select { padding: 6px 4px; max-width: 46%; }
+
+      /* スクロール領域の端で画面全体が引っ張られたり（プルリフレッシュ）しないように */
+      main, #dec-right, #game-right, #cb-list, .modal-body, .dd-panel, .cb-log { overscroll-behavior: contain; }
+
+      /* ── ヘッダー: 全部見えたまま、なるべく低く ── */
+      header {
+        padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 8px;
+        gap: 6px;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .header-left {
+        flex-direction: row;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        text-align: left;
+        min-width: 0;
+      }
+      h1 { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .header-desc { font-size: 0; margin-top: 0; flex-shrink: 0; line-height: 1; }  /* 説明文は隠し、バックアップだけ残す */
+      .header-desc .header-link-btn { font-size: 12px; margin-left: 0; min-height: 0; height: auto; padding: 2px 0; }
+
+      /* タブは横幅いっぱいに均等割り */
+      .tab-bar { margin: 0; width: 100%; padding: 3px; }
+      .tab-btn { flex: 1 1 0; padding: 2px 4px; height: 34px; min-height: 34px; font-size: 13px; }
+      #tab-game.has-new::after { top: 5px; right: 8px; }
+
+      /* 操作ボタン群: 横スクロールにせず折り返して全部見せる（高さは詰める） */
+      .header-controls { gap: 6px; width: 100%; align-items: stretch; }
+      .header-controls button {
+        flex: 1 1 auto;
+        height: 32px;
+        min-height: 32px;
+        font-size: 12px;
+        padding: 0 8px;
+      }
+      #game-controls button { flex: 1 1 42%; }   /* 4 つを 2×2 に */
+      /* 「種類」と「高さ」は同じ行に並べる */
+      .slider-container { flex: 1 1 46%; width: auto; min-width: 0; gap: 6px; justify-content: flex-start; }
+      .slider-label { font-size: 11.5px; flex-shrink: 0; }
+      .slider-container .dd { flex: 1; min-width: 0; }
+      .slider-container .dd-button { width: 100%; min-width: 0; height: 32px; }
+      .height-slider { flex: 1; min-width: 50px; max-width: none; width: auto; }
+      .slider-value { width: 34px; font-size: 11.5px; }
+
+      /* ── 生成: 行カードを 3 段構成にして、バーコードは横幅いっぱいに ── */
+      main { padding: 8px 10px; }
+      #drop-indicator { left: 10px; right: 10px; }
+      #rows-container { gap: 8px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+      .barcode-row { padding: 8px 10px; gap: 6px; }
+      .row-top { gap: 6px; }
+      /* 1段目: [ハンドル][#n][種類 ▾][×]  2段目: [入力]  3段目: [★][複製][コピー][PNG保存][読取確認] */
+      .row-actions { display: contents; }
+      .row-top > .drag-handle { order: 1; padding: 0 2px; }
+      .row-top > .row-number { order: 2; width: auto; min-width: 20px; }
+      .row-top > .dd { order: 3; flex: 1 1 auto; min-width: 0; }
+      .row-top > .dd .dd-button { width: 100%; min-width: 0; height: 34px; }
+      .row-top .btn-delete { order: 4; flex: 0 0 36px; width: 36px; height: 34px; margin-left: auto; }
+      .row-top > .barcode-input { order: 5; flex: 1 1 100%; min-width: 0; }
+      .row-top .btn-fav, .row-top .btn-action { order: 6; flex: 1 1 0; height: 34px; min-height: 34px; font-size: 12px; padding: 0 4px; }
+      .row-top .btn-fav { flex: 0 0 38px; width: 38px; }
+      .barcode-canvas-container { padding-left: 0; }
+      .barcode-canvas { border-radius: 6px; }
+      #empty-state { padding: 36px 16px; }
+      #empty-state .empty-actions { flex-wrap: wrap; justify-content: center; }
+
+      /* ── フッター / トースト ── */
+      footer { padding: 4px 12px calc(4px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px; gap: 2px 10px; }
+      #toast-container {
+        bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+        width: calc(100% - 32px);
+        align-items: center;
+      }
+      .toast { max-width: 100%; padding: 10px 16px; font-size: 13px; line-height: 1.5; }
+
+      /* ── モーダル: 画面幅いっぱい・上寄せ（キーボードが出ても入力欄が隠れにくい） ── */
+      .modal-overlay {
+        padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px));
+        align-items: flex-start;
+      }
+      .modal {
+        max-width: none;
+        max-height: 90vh;
+        max-height: calc(100dvh - 20px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      }
+      .modal-header { padding: 12px 14px; }
+      .modal-header h2 { font-size: 15px; }
+      .modal-body { padding: 12px 14px 14px; }
+      .modal-add-row { flex-wrap: wrap; gap: 8px; }
+      .modal-add-row .dd { flex: 1 1 200px; }
+      .modal .dd-button { width: 100%; min-width: 0; height: 36px; }
+      .modal-add-row input { flex: 1 1 140px; }
+      .modal .bulk-textarea { min-height: 140px; }
+      .modal-footer button { flex: 1 1 auto; }
+      .setting-row { padding: 12px 0; gap: 10px; }
+      .setting-row > span:first-child { flex: 1 1 auto; min-width: 0; line-height: 1.5; }
+      .setting-right { flex: 0 0 auto; }
+      .setting-right .height-slider { width: 110px !important; }  /* インライン style の 120px を少しだけ縮める */
+
+      /* 種類のドロップダウンパネル */
+      .dd-panel { max-height: 55vh; max-height: 55dvh; max-width: calc(100vw - 16px); }   /* 画面からはみ出さない（説明文は … で省略） */
+
+      /* ── 読み取り ── */
+      .pc-only, #dec-drop-hint .pc-only { display: none; }
+      .sp-only, #dec-drop-hint .sp-only { display: inline; }
+      #dec-drop-hint b.sp-only { display: block; }
+      #dec-left { max-height: 50%; min-height: 220px; padding: 8px 10px; gap: 6px; }
+      #dec-drop-zone { min-height: 160px; }
+      #dec-drop-hint { padding: 12px; font-size: 12px; line-height: 1.8; }
+      #dec-drop-hint b { font-size: 14px; margin-bottom: 6px; }
+      #dec-left .preview-info { font-size: 11px; }
+      #dec-right { padding: 8px 10px calc(16px + env(safe-area-inset-bottom, 0px)); }
+      #dec-right .decoded-text { font-size: 13px; margin: 8px; }
+      #dec-right table.kv td:first-child { width: 36%; white-space: normal; }
+      #dec-right .dec-empty { padding: 28px 12px; }
+
+      /* ── コードバトル: 上部のバー類を詰める ── */
+      .cb-viewswitch { padding: 6px 10px 0; gap: 6px; }
+      .cb-viewbtn { padding: 8px 4px; font-size: 12.5px; }
+      #game-left { padding: 8px 10px; gap: 6px; }
+      #game-right { padding: 8px 10px calc(20px + env(safe-area-inset-bottom, 0px)); }
+      .cb-back-to-list { display: none; }   /* 上の「コレクション / 対戦・育成」切替と重複するため省略 */
+      .cb-topbar { margin: 8px 0 6px; }
+      .cb-topbtn { padding: 8px 2px; font-size: 12.5px; }
+      .cb-subbar { margin-bottom: 8px; }
+      .cb-subbtn { padding: 7px 2px; }
+      .cb-section-title { margin: 12px 0 6px; }
+
+      /* 対戦カードは横並びに戻し、VS を挟んで 1 画面に収める */
+      .cb-arena { flex-direction: row; align-items: stretch; gap: 6px; }
+      .cb-vs { font-size: 12px; letter-spacing: 0; }
+      .cb-slot { padding: 8px; min-height: 84px; }
+      .cb-slot-name { font-size: 13px; }
+      .cb-slot-meta, .cb-slot-tag { font-size: 10px; }
+      .cb-slot-stats { gap: 2px 6px; margin-top: 5px; }
+      .cb-mini { font-size: 10.5px; }
+      .cb-mini b { font-size: 11.5px; }
+      .cb-arena-actions button, .cb-card-actions button { flex: 1 1 auto; }
+
+      /* 詳細カード */
+      .cb-card { padding: 10px 12px; }
+      .cb-name { font-size: 16px; }
+      .cb-elem-mark { font-size: 20px; }
+      .cb-stats { margin-top: 10px; gap: 5px; }
+      .cb-stat-row { grid-template-columns: 46px 1fr 30px; gap: 8px; }
+      .cb-code-line { margin-top: 8px; }
+      .cb-log { max-height: 40vh; max-height: 40dvh; }
+
+      /* コレクション一覧 */
+      .cb-panel-head { flex-wrap: wrap; row-gap: 4px; }
+      .cb-toolbar, .cb-manual { gap: 6px; }
+      .cb-item-name { font-size: 13px; }
+      .cb-item-code { font-size: 10.5px; }
+
+      /* 融合・系譜、ガントレットなど横に長い行 */
+      .cb-fuse-node .nm { max-width: 72px; }
+      .cb-gaunt-rung { padding: 6px 8px; }
+      .cb-rival-qr canvas { max-width: min(100%, 260px); }
+    }
+
+    /* ── 特に狭い端末（幅 360px 以下の Android など）: さらに文字と余白を詰める ── */
+    @media (max-width: 360px) {
+      header { padding-left: 8px; padding-right: 8px; }
+      .header-controls button { font-size: 11.5px; padding: 0 6px; }
+      .slider-label { display: none; }                 /* 「種類:」「高さ:」のラベルは省略（見れば分かる） */
+      .tab-btn { font-size: 12.5px; }
+      main { padding: 8px; }
+      .barcode-row { padding: 8px; }
+      .row-top .btn-fav, .row-top .btn-action { font-size: 11.5px; padding: 0 2px; }
+      .cb-viewbtn, .cb-topbtn { font-size: 12px; }
+      .cb-chip { padding: 6px 8px; }
+    }
+
+    /* ── 横向きのスマホ（高さが足りない）: ヘッダーのタイトル行を省略して本文を優先 ── */
+    @media (max-width: 900px) and (max-height: 430px) {
+      .header-left { display: none; }
+      header { padding-top: calc(4px + env(safe-area-inset-top, 0px)); padding-bottom: 6px; gap: 4px; }
+      #dec-left { max-height: 60%; }
+    }
+
   </style>
 </head>
 <body>
@@ -2175,8 +2437,9 @@
     <div id="dec-left">
       <div id="dec-drop-zone">
         <div id="dec-drop-hint">
-          <b>ここに画像をドロップ</b>
-          <kbd>Ctrl</kbd>+<kbd>V</kbd> で貼り付け / <kbd>Ctrl</kbd>+<kbd>O</kbd> でファイルを開く<br>
+          <b class="pc-only">ここに画像をドロップ</b><b class="sp-only">カメラで読み取り</b>
+          <span class="pc-only"><kbd>Ctrl</kbd>+<kbd>V</kbd> で貼り付け / <kbd>Ctrl</kbd>+<kbd>O</kbd> でファイルを開く<br></span>
+          <span class="sp-only">上の「カメラ開始」でかざして読み取り、<br>「画像を開く」で写真やスクショから読めます<br></span>
           生成タブの「コピー」でコピーした画像や、<br>
           他で作られたバーコード・QRコードの写真も読めます
         </div>
