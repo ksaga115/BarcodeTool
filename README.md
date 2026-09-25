@@ -67,6 +67,7 @@ QR の生成・読み取りは BarcodeTool と同じ自前エンジンで、`QRT
 | [`README-iOS.md`](./README-iOS.md) | iPhone アプリ化（Capacitor + 買い切り Pro）の手順・設定・App Store 申請メモ |
 | [`docs/計画書.md`](./docs/計画書.md) | 今後の作業計画（PWA 化 → コードバトル刷新 → モバイル品質 → ネイティブ化） |
 | [`docs/コードバトル設計.md`](./docs/コードバトル設計.md) | コードバトルの詳細設計仕様（個体の決定論・対戦式・変更履歴） |
+| [`docs/株バトル設計.md`](./docs/株バトル設計.md) | **株バトル**（日本株の決算＝素体・株価＝状態・事業＝技でキャラを作り、コードバトルのエンジンで戦わせる）の長期運用前提の設計書。データ取得は GitHub Actions |
 
 ### iOS アプリ化（Capacitor）
 
