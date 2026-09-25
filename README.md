@@ -11,6 +11,17 @@
 
 > カメラ読み取りは HTTPS（または localhost）でのみ動作します。ダウンロードした HTML を `file://` で開いた場合、生成とコードバトルは使えますがカメラは使えません。
 
+### 📡 QR転送 — iPhone 同士でオフラインにデータを渡す
+
+| | リンク |
+|---|---|
+| 🌐 **ブラウザで開く** | <https://ksaga115.github.io/BarcodeTool/QRTransfer.html> |
+| 📦 HTML ファイル | [QRTransfer.html（raw）](https://raw.githubusercontent.com/ksaga115/BarcodeTool/master/QRTransfer.html) |
+
+送る側がデータを分割した QR コードを画面に連続表示し、受け取る側がカメラで読み取って復元します。Wi-Fi・Bluetooth・インターネットは一切使いません。
+文章・URL・ファイル・写真（自動縮小あり）を送れます。「中」設定で約 1.4 KB/秒（短文なら数秒、縮小した写真で 30 秒〜1 分）。
+QR の生成・読み取りは BarcodeTool と同じ自前エンジンで、`QRTransfer.html` は `npm run build:qrt` が本体から抜き出して合成します。
+
 ---
 
 ## 機能
@@ -29,6 +40,8 @@
 | ファイル | 説明 |
 |---|---|
 | [`BarcodeTool.html`](./BarcodeTool.html) | **アプリ本体**。これ 1 ファイルで完結（HTML + CSS + JS） |
+| [`QRTransfer.html`](./QRTransfer.html) | **QR転送**（生成物・単一ファイル）。`qrtransfer/template.html` に本体の QR エンコーダとデコーダコアを注入したもの |
+| [`qrtransfer/template.html`](./qrtransfer/template.html) | QR転送の原本（UI・転送プロトコル・送受信ループ）。QR エンジン部分は目印だけ置いてある |
 | [`index.html`](./index.html) | GitHub Pages 用。`BarcodeTool.html` へリダイレクトするだけ |
 | [`app.json`](./app.json) | アプリ名・バージョン・起動ファイルのメタ情報 |
 | [`.gitattributes`](./.gitattributes) | 改行を LF に固定（配布 HTML のバイト列を保つ） |
@@ -63,6 +76,9 @@
 | ファイル | npm コマンド | 説明 |
 |---|---|---|
 | [`scripts/build-dist.mjs`](./scripts/build-dist.mjs) | `npm run dist` | 配布版 `dist/BarcodeTool.html` を生成。外部参照が紛れ込んでいないかも検査 |
+| [`scripts/build-qrtransfer.mjs`](./scripts/build-qrtransfer.mjs) | `npm run build:qrt` | `BarcodeTool.html` から QR エンコーダとデコーダコアを抜き出して `qrtransfer/template.html` に注入し、`QRTransfer.html` を生成 |
+| [`scripts/qrtransfer-test.mjs`](./scripts/qrtransfer-test.mjs) | `npm run test:qrt` | QR転送の検証（jsdom）。プロトコルの往復、順不同・重複・別セッション混入、QR 行列→画素→デコード→復元の一致 |
+| [`scripts/qrtransfer-browser.mjs`](./scripts/qrtransfer-browser.mjs) | `npm run test:qrt:browser` | 実ブラウザ（Chromium + Playwright）で送信画面のキャンバスを受信側に流し、テキストと写真の転送を確認。スクリーンショットも保存 |
 | [`scripts/build-www.mjs`](./scripts/build-www.mjs) | `npm run build` | 本体を改変せず、ネイティブ用スクリプトを注入した `www/index.html` を生成 |
 | [`scripts/apply-ios-patch.mjs`](./scripts/apply-ios-patch.mjs) | `npm run patch:ios` | `ios-patch/` を生成済み iOS プロジェクトへ適用 |
 | [`scripts/domcheck.mjs`](./scripts/domcheck.mjs) | `npm run domcheck` | jsdom でコードバトル画面を実際に動かし、例外や DOM 崩れを検出 |
@@ -75,8 +91,16 @@
 
 ```bash
 npm install
-npm test          # domcheck + sim
+npm test          # domcheck + sim + QR転送の検証
 npm run dist      # 配布版を dist/ に生成
+npm run build:qrt # QRTransfer.html を再生成（本体の QR エンジンを変えたら実行）
 ```
+
+### QR転送の仕組み（`qrtransfer/template.html`）
+
+- **ストリーム**: `flags(1) | 元の長さ(4) | CRC32(4) | 名前 | MIME | 本体`。本体は縮むときだけ `CompressionStream("deflate")` で圧縮。
+- **フレーム**: `'Q'(1) | セッションID(2) | 番号(2) | 総数(2) | データ` を QR のバイトモードに入れる。バージョンとマスクは固定で、1 枚あたりの生成が速い。
+- **送信**: 全フレームをループ表示。相手の解析周期と同期して同じ枚を落とし続けないよう、表示間隔を ±15% 揺らす。
+- **受信**: BarcodeTool のデコーダコアを Web Worker で動かし、番号ごとに集める。全部そろったら CRC32 で検証してから復元。別セッションは同じ ID が 2 回続いたときだけ乗り換える。
 
 iPhone アプリのビルド手順（macOS + Xcode が必要）は [README-iOS.md](./README-iOS.md) を参照してください。

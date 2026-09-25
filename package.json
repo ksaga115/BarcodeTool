@@ -9,12 +9,15 @@
     "dist": "node scripts/build-dist.mjs",
     "domcheck": "node scripts/domcheck.mjs",
     "sim": "node scripts/sim.mjs",
-    "test": "node scripts/domcheck.mjs && node scripts/sim.mjs",
+    "test": "node scripts/domcheck.mjs && node scripts/sim.mjs && node scripts/qrtransfer-test.mjs",
     "patch:ios": "node scripts/apply-ios-patch.mjs",
     "assets": "capacitor-assets generate --assetPath assets --iconBackgroundColor #1e1e2e --iconBackgroundColorDark #1e1e2e --splashBackgroundColor #1e1e2e --splashBackgroundColorDark #1e1e2e",
     "sync": "npm run build && npx cap sync ios && npm run patch:ios",
     "ios": "npm run sync && npx cap open ios",
-    "copy": "npm run build && npx cap copy ios"
+    "copy": "npm run build && npx cap copy ios",
+    "build:qrt": "node scripts/build-qrtransfer.mjs",
+    "test:qrt": "node scripts/qrtransfer-test.mjs",
+    "test:qrt:browser": "node scripts/qrtransfer-browser.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QR転送">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>QR転送 — 通信ゼロで iPhone 同士のデータ受け渡し</title>
+  <!--
+    QR転送 (QRTransfer.html)
+    送る側がデータを分割した QR コードを連続表示し、受け取る側がカメラで読み取って復元する。
+    Wi-Fi・Bluetooth・インターネットを一切使わない（画面と光だけ）。
+    このファイルは scripts/build-qrtransfer.mjs が qrtransfer/template.html と BarcodeTool.html から生成する。
+    生成日: __BUILD_DATE__
+  -->
+  <style>
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+      --blue: #1e66f5; --blue-hover: #4d88f7; --blue-light: #89b4fa;
+      --red: #f38ba8; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387; --mauve: #cba6f7; --sky: #89dceb;
+      --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body {
+      background: var(--base); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      font-size: 15px; line-height: 1.5;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-top: var(--sat);
+    }
+    header {
+      background: var(--mantle); border-bottom: 1px solid var(--surface0);
+      padding: 10px 16px 0; flex-shrink: 0;
+    }
+    .hd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    h1 { font-size: 17px; font-weight: 700; color: var(--blue-light); }
+    .hd-desc { font-size: 12px; color: var(--overlay); }
+    .hd-link { background: none; border: none; color: var(--blue-light); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: inherit; padding: 4px 0; white-space: nowrap; flex-shrink: 0; }
+    .tabs { display: flex; margin-top: 8px; }
+    .tab {
+      flex: 1; height: 44px; border: none; border-bottom: 3px solid transparent; background: none;
+      color: var(--subtext); font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer;
+    }
+    .tab.on { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+    main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px calc(24px + var(--sab)); }
+    .panel { display: none; max-width: 720px; margin: 0 auto; }
+    .panel.on { display: block; }
+
+    button, .btn {
+      font-family: inherit; font-size: 15px; font-weight: 600; border-radius: 10px;
+      border: 1px solid var(--surface1); background: var(--surface0); color: var(--text);
+      min-height: 44px; padding: 8px 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      text-decoration: none; transition: background-color .15s ease, transform .1s ease;
+    }
+    button:active, .btn:active { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: default; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .primary:hover { background: var(--blue-hover); }
+    .danger { color: var(--red); }
+    .wide { width: 100%; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .row > * { flex: 1 1 auto; white-space: nowrap; }
+    .seg { display: flex; border: 1px solid var(--surface1); border-radius: 10px; overflow: hidden; }
+    .seg button { flex: 1; border: none; border-radius: 0; background: none; font-weight: 500; }
+    .seg button.on { background: var(--surface1); color: var(--blue-light); font-weight: 700; }
+    textarea, input[type=text] {
+      width: 100%; font-family: inherit; font-size: 16px; color: var(--text); background: var(--mantle);
+      border: 1px solid var(--surface1); border-radius: 10px; padding: 10px; outline: none; resize: vertical;
+    }
+    textarea:focus { border-color: var(--blue-light); }
+    select, input[type=range] { font-family: inherit; font-size: 15px; color: var(--text); }
+    select { background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; height: 40px; padding: 0 8px; width: 100%; }
+    input[type=range] { width: 100%; accent-color: var(--blue-light); }
+    .card { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 14px; margin-top: 12px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: var(--subtext); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 13px; color: var(--subtext); margin-bottom: 4px; }
+    .hint { font-size: 12px; color: var(--overlay); margin-top: 6px; }
+    .stat { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 14px; }
+    .stat b { color: var(--yellow); font-weight: 600; }
+    .stat span { color: var(--subtext); }
+    .filebox { display: flex; align-items: center; gap: 10px; }
+    .filename { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+    .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+    .toast {
+      position: fixed; left: 50%; bottom: calc(24px + var(--sab)); transform: translateX(-50%);
+      background: var(--surface1); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw;
+    }
+    .toast.show { opacity: 1; }
+
+    /* ── 送信中の全画面表示 ── */
+    #tx-screen { position: fixed; inset: 0; background: #fff; display: none; flex-direction: column; z-index: 20; padding-top: var(--sat); }
+    #tx-screen.on { display: flex; }
+    #tx-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+    #tx-canvas { image-rendering: pixelated; image-rendering: crisp-edges; max-width: 100%; max-height: 100%; }
+    #tx-bar { background: var(--mantle); color: var(--text); padding: 10px 16px calc(10px + var(--sab)); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #tx-bar .info { flex: 1; font-size: 14px; min-width: 160px; }
+    #tx-bar .info b { color: var(--yellow); }
+    #tx-prog { height: 4px; background: var(--surface0); }
+    #tx-prog i { display: block; height: 100%; background: var(--blue-light); width: 0; transition: width .1s linear; }
+
+    /* ── 受信 ── */
+    #rx-view { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 3 / 4; max-height: 62vh; margin-top: 12px; }
+    #rx-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #rx-overlay { position: absolute; inset: 0; pointer-events: none; }
+    #rx-frame { position: absolute; left: 12%; top: 12%; width: 76%; aspect-ratio: 1; border: 2px dashed rgba(255,255,255,.55); border-radius: 12px; }
+    #rx-frame.hit { border-color: var(--green); border-style: solid; }
+    #rx-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; font-size: 14px; }
+    #rx-status b { color: var(--yellow); }
+    #rx-prog { height: 6px; background: rgba(255,255,255,.25); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+    #rx-prog i { display: block; height: 100%; width: 0; background: var(--green); transition: width .15s; }
+    #rx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14px, 1fr)); gap: 3px; margin-top: 10px; }
+    #rx-grid i { display: block; aspect-ratio: 1; background: var(--surface0); border-radius: 2px; }
+    #rx-grid i.ok { background: var(--green); }
+    #rx-result { display: none; }
+    #rx-result.on { display: block; }
+    #rx-result .done { font-size: 20px; font-weight: 700; color: var(--green); }
+    #rx-img { max-width: 100%; max-height: 50vh; border-radius: 8px; display: none; margin-top: 10px; }
+    #rx-text { min-height: 120px; margin-top: 10px; user-select: text; -webkit-user-select: text; }
+
+    /* ── ヘルプ ── */
+    #help { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 40; }
+    #help.on { display: flex; }
+    #help .sheet { background: var(--mantle); border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + var(--sab)); max-width: 720px; width: 100%; max-height: 85vh; overflow-y: auto; }
+    #help h2 { font-size: 16px; margin-bottom: 8px; color: var(--blue-light); }
+    #help p, #help li { font-size: 14px; color: var(--subtext); margin-bottom: 6px; }
+    #help ol { padding-left: 20px; }
+    #help .close { margin-top: 12px; }
+    @media (min-width: 720px) { #help { align-items: center; } #help .sheet { border-radius: 16px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="hd-row">
+      <div>
+        <h1>QR転送</h1>
+        <div class="hd-desc">通信ゼロ。画面の QR を相手のカメラで読み取って渡す</div>
+      </div>
+      <button class="hd-link" id="btn-help" type="button">つかいかた</button>
+    </div>
+    <div class="tabs">
+      <button class="tab on" id="tab-tx" type="button">送る</button>
+      <button class="tab" id="tab-rx" type="button">受け取る</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ════════ 送る ════════ -->
+    <section class="panel on" id="panel-tx">
+      <div class="seg" id="tx-kind">
+        <button type="button" class="on" data-kind="text">テキスト</button>
+        <button type="button" data-kind="file">ファイル・写真</button>
+      </div>
+
+      <div class="card" id="tx-text-card">
+        <textarea id="tx-text" rows="6" placeholder="送りたい文章・URL・メモを入力" autocapitalize="off"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="tx-paste">クリップボードから貼り付け</button>
+          <button type="button" id="tx-text-clear">消去</button>
+        </div>
+      </div>
+
+      <div class="card" id="tx-file-card" style="display:none">
+        <div class="filebox">
+          <button type="button" id="tx-file-btn">ファイルを選ぶ</button>
+          <div class="filename" id="tx-file-name">未選択</div>
+        </div>
+        <input type="file" id="tx-file" style="display:none">
+        <div class="field" id="tx-shrink-field" style="display:none">
+          <label>写真の縮小（転送を速くする）</label>
+          <select id="tx-shrink">
+            <option value="640" selected>長辺 640px・JPEG（おすすめ）</option>
+            <option value="1024">長辺 1024px・JPEG</option>
+            <option value="0">縮小しない（元のまま）</option>
+          </select>
+        </div>
+        <div class="hint">写真は「写真ライブラリ」から選べます。大きなファイルは時間がかかります（目安: 1 分で約 100 KB）。</div>
+      </div>
+
+      <div class="card">
+        <h2>設定</h2>
+        <div class="row">
+          <div class="field">
+            <label>QR の大きさ</label>
+            <select id="tx-ver">
+              <option value="8">小（読み取りやすい）</option>
+              <option value="12" selected>中（おすすめ）</option>
+              <option value="16">大</option>
+              <option value="20">特大（速いが読み取りにくい）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>誤り訂正</label>
+            <select id="tx-ecl">
+              <option value="L">低（容量優先）</option>
+              <option value="M" selected>中（おすすめ）</option>
+              <option value="Q">高（画面が汚れている時）</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>切り替え速度: <b id="tx-fps-val">5</b> 枚/秒</label>
+          <input type="range" id="tx-fps" min="2" max="12" step="1" value="5">
+          <div class="hint">相手が「取りこぼし」を繰り返すときは遅くしてください。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="stat" id="tx-stat">
+          <span>データ量</span><b id="st-size">—</b>
+          <span>圧縮後</span><b id="st-comp">—</b>
+          <span>QR の枚数</span><b id="st-frames">—</b>
+          <span>1 周の時間</span><b id="st-time">—</b>
+        </div>
+        <div class="err" id="tx-err"></div>
+        <button type="button" class="primary wide" id="tx-start" style="margin-top:12px" disabled>送信をはじめる</button>
+        <div class="hint">画面の明るさを最大にし、相手のカメラに QR 全体が入るように向けてください。受け取り完了まで自動で繰り返します。</div>
+      </div>
+    </section>
+
+    <!-- ════════ 受け取る ════════ -->
+    <section class="panel" id="panel-rx">
+      <div class="row">
+        <button type="button" class="primary" id="rx-start">カメラをはじめる</button>
+        <button type="button" id="rx-stop" disabled>停止</button>
+      </div>
+      <div id="rx-view">
+        <video id="rx-video" playsinline muted autoplay></video>
+        <div id="rx-overlay">
+          <div id="rx-frame"></div>
+          <div id="rx-status">
+            <div id="rx-prog"><i></i></div>
+            <div id="rx-msg">相手の画面の QR を枠に入れてください</div>
+          </div>
+        </div>
+      </div>
+      <div id="rx-grid"></div>
+      <div class="hint" id="rx-hint">受信した QR が緑になります。取りこぼしは次の周回で自動的に埋まります。</div>
+      <div class="err" id="rx-err"></div>
+
+      <div class="card" id="rx-result">
+        <div class="done">✓ 受け取りました</div>
+        <div class="stat" style="margin-top:8px">
+          <span>種類</span><b id="rs-kind">—</b>
+          <span>サイズ</span><b id="rs-size">—</b>
+          <span>所要時間</span><b id="rs-time">—</b>
+          <span>QR の枚数</span><b id="rs-frames">—</b>
+        </div>
+        <img id="rx-img" alt="">
+        <textarea id="rx-text" readonly style="display:none"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="primary" id="rs-copy" style="display:none">コピー</button>
+          <button type="button" class="primary" id="rs-share">共有 / 保存</button>
+          <a class="btn" id="rs-download" download>ダウンロード</a>
+        </div>
+        <button type="button" class="wide" id="rs-again" style="margin-top:10px">もう一度受け取る</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ════════ 送信中（全画面） ════════ -->
+  <div id="tx-screen">
+    <div id="tx-wrap"><canvas id="tx-canvas" width="300" height="300"></canvas></div>
+    <div id="tx-prog"><i></i></div>
+    <div id="tx-bar">
+      <div class="info">QR <b id="tx-idx">0</b> / <span id="tx-total">0</span> 枚 ・ <b id="tx-loop">1</b> 周目 ・ <span id="tx-elapsed">0:00</span></div>
+      <button type="button" id="tx-pause">一時停止</button>
+      <button type="button" class="danger" id="tx-stop">終了</button>
+    </div>
+  </div>
+
+  <!-- ════════ ヘルプ ════════ -->
+  <div id="help">
+    <div class="sheet">
+      <h2>つかいかた</h2>
+      <ol>
+        <li><b>送る側</b>: 「送る」タブで文章かファイルを選び、「送信をはじめる」。画面に QR が次々と表示されます。</li>
+        <li><b>受け取る側</b>: 「受け取る」タブで「カメラをはじめる」。相手の画面の QR を枠に入れて、そのまま待ちます。</li>
+        <li>すべての QR を読み取ると自動で完了し、文章の表示や保存ができます。</li>
+      </ol>
+      <h2>コツ</h2>
+      <p>・送る側は画面の明るさを最大に。受け取る側はカメラを 15〜30 cm 離し、QR が枠いっぱいに入るように。</p>
+      <p>・取りこぼした QR は次の周回で自動的に埋まります。なかなか終わらないときは送る側の速度を下げるか、QR の大きさを「小」にしてください。</p>
+      <p>・通信は一切使いません（Wi-Fi・Bluetooth・インターネット不要）。データはこの画面の外に出ません。</p>
+      <p>・目安の速さ: 「中」設定で約 1.4 KB/秒。短い文章なら数秒、縮小した写真は 30 秒〜1 分程度です。</p>
+      <h2>仕組み</h2>
+      <p>データを圧縮して小さく分け、番号を付けて QR コード（バイトモード）に順番に入れます。受け取る側は番号ごとに集め、そろったら CRC32 で壊れていないことを確かめてから復元します。QR の生成・読み取りはどちらも BarcodeTool と同じ自前エンジンです。</p>
+      <button type="button" class="wide close" id="help-close">閉じる</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ════════ QR エンコーダ（BarcodeTool.html から抽出・原本不変） ════════ -->
+  <script>
+/*__QR_ENCODER__*/
+  </script>
+
+  <!-- ════════ デコーダコア（BarcodeTool.html から抽出。textContent を Worker にも流し込む） ════════ -->
+  <script id="dec-core-src">
+/*__DECODER_CORE__*/
+  </script>
+
+  <!-- ════════ 転送プロトコル（純粋関数。Node のテストからも使う） ════════ -->
+  <script id="qrt-proto-src">
+    // ===== QRT PROTO START =====
+    (function (global) {
+      "use strict";
+      // ── ストリーム（1 回の転送で送る全バイト列）──
+      //   [0]      flags: bit0 = deflate 圧縮あり, bit1 = ファイル（0 ならテキスト）
+      //   [1..4]   元データの長さ (uint32 BE)
+      //   [5..8]   元データの CRC32 (uint32 BE)
+      //   [9]      名前の長さ n, 続く n バイトが UTF-8 の名前（テキストなら 0）
+      //   [..]     MIME の長さ m, 続く m バイトが MIME（テキストなら 0）
+      //   [..]     本体（圧縮あり なら zlib deflate 済み）
+      // ── フレーム（QR 1 枚に入れるバイト列）──
+      //   [0]      マジック 0x51 ('Q')
+      //   [1..2]   セッション ID (uint16 BE)  … 送信のたびに乱数で決める
+      //   [3..4]   このフレームの番号 (uint16 BE, 0 始まり)
+      //   [5..6]   フレーム総数 (uint16 BE)
+      //   [7..]    ストリームの一部（最後のフレームだけ短い）
+      var MAGIC = 0x51, HEADER = 7;
+
+      var CRC_TABLE = (function () {
+        var t = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+          var c = n;
+          for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+          t[n] = c >>> 0;
+        }
+        return t;
+      })();
+      function crc32(bytes) {
+        var c = 0xFFFFFFFF;
+        for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+        return (c ^ 0xFFFFFFFF) >>> 0;
+      }
+      function u8(s) { return new TextEncoder().encode(s); }
+      function str(b) { return new TextDecoder().decode(b); }
+
+      function hasCompression() {
+        return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+      }
+      async function pipe(bytes, stream) {
+        var res = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+        return new Uint8Array(await res.arrayBuffer());
+      }
+      async function deflate(bytes) { return pipe(bytes, new CompressionStream("deflate")); }
+      async function inflate(bytes) { return pipe(bytes, new DecompressionStream("deflate")); }
+
+      /** 元データとメタ情報からストリームを組み立てる（縮まるときだけ圧縮する） */
+      async function buildStream(raw, meta) {
+        meta = meta || {};
+        var body = raw, flags = 0;
+        if (hasCompression() && raw.length >= 32) {
+          try {
+            var z = await deflate(raw);
+            if (z.length < raw.length) { body = z; flags |= 1; }
+          } catch (e) { /* 圧縮できなければ生のまま */ }
+        }
+        if (meta.isFile) flags |= 2;
+        var name = u8(meta.name || ""), mime = u8(meta.mime || "");
+        if (name.length > 255) name = name.slice(0, 255);
+        if (mime.length > 255) mime = mime.slice(0, 255);
+        var head = new Uint8Array(9 + 1 + name.length + 1 + mime.length);
+        var dv = new DataView(head.buffer);
+        head[0] = flags;
+        dv.setUint32(1, raw.length);
+        dv.setUint32(5, crc32(raw));
+        var p = 9;
+        head[p++] = name.length; head.set(name, p); p += name.length;
+        head[p++] = mime.length; head.set(mime, p); p += mime.length;
+        var out = new Uint8Array(head.length + body.length);
+        out.set(head, 0); out.set(body, head.length);
+        return { stream: out, compressed: !!(flags & 1), rawLength: raw.length };
+      }
+
+      /** ストリームを元データに戻す。壊れていれば { ok:false, error } */
+      async function parseStream(stream) {
+        try {
+          if (stream.length < 11) return { ok: false, error: "データが短すぎます" };
+          var dv = new DataView(stream.buffer, stream.byteOffset, stream.byteLength);
+          var flags = stream[0], rawLen = dv.getUint32(1), crc = dv.getUint32(5);
+          var p = 9;
+          var nl = stream[p++]; var name = str(stream.subarray(p, p + nl)); p += nl;
+          var ml = stream[p++]; var mime = str(stream.subarray(p, p + ml)); p += ml;
+          var body = stream.subarray(p);
+          if (flags & 1) {
+            if (!hasCompression()) return { ok: false, error: "この端末は圧縮データを展開できません" };
+            body = await inflate(body);
+          }
+          if (body.length !== rawLen) return { ok: false, error: "長さが一致しません (" + body.length + " / " + rawLen + ")" };
+          if (crc32(body) !== crc) return { ok: false, error: "CRC が一致しません（データが壊れています）" };
+          return { ok: true, data: body, isFile: !!(flags & 2), name: name, mime: mime, compressed: !!(flags & 1) };
+        } catch (e) {
+          return { ok: false, error: "復元に失敗: " + (e && e.message || e) };
+        }
+      }
+
+      /** ストリームをフレームに分割する。chunkLen = QR 1 枚に入るバイト数 − ヘッダ 7 */
+      function splitFrames(stream, chunkLen, sid) {
+        if (chunkLen < 1) throw new Error("chunkLen が小さすぎます");
+        var total = Math.max(1, Math.ceil(stream.length / chunkLen));
+        if (total > 65535) throw new Error("データが大きすぎます（フレーム数 " + total + "）");
+        var frames = [];
+        for (var i = 0; i < total; i++) {
+          var part = stream.subarray(i * chunkLen, Math.min(stream.length, (i + 1) * chunkLen));
+          var f = new Uint8Array(HEADER + part.length);
+          f[0] = MAGIC;
+          f[1] = (sid >>> 8) & 0xFF; f[2] = sid & 0xFF;
+          f[3] = (i >>> 8) & 0xFF; f[4] = i & 0xFF;
+          f[5] = (total >>> 8) & 0xFF; f[6] = total & 0xFF;
+          f.set(part, HEADER);
+          frames.push(f);
+        }
+        return frames;
+      }
+
+      /** QR から出てきたバイト列をフレームとして解釈する。違えば null */
+      function parseFrame(bytes) {
+        if (!bytes || bytes.length < HEADER || bytes[0] !== MAGIC) return null;
+        var sid = (bytes[1] << 8) | bytes[2];
+        var idx = (bytes[3] << 8) | bytes[4];
+        var total = (bytes[5] << 8) | bytes[6];
+        if (total < 1 || idx >= total) return null;
+        var chunk = bytes instanceof Uint8Array ? bytes.subarray(HEADER) : new Uint8Array(bytes.slice(HEADER));
+        if (chunk.length === 0 && total > 1) return null;
+        return { sid: sid, idx: idx, total: total, chunk: chunk };
+      }
+
+      /** 受信側の組み立て器。feed() にフレームを渡すと進捗を返す */
+      function Receiver() {
+        this.reset();
+      }
+      Receiver.prototype.reset = function () {
+        this.sid = -1; this.total = 0; this.got = 0; this.chunks = null; this.chunkLen = 0;
+        this.pendingSid = -1; this.pendingCount = 0;
+        this.startedAt = 0;
+      };
+      Receiver.prototype.feed = function (frame) {
+        if (!frame) return { accepted: false };
+        if (this.sid < 0) {
+          this._begin(frame);
+        } else if (frame.sid !== this.sid) {
+          // 別セッション: 誤読 1 回で切り替わらないよう、同じ新 sid が 2 回続いたら乗り換える
+          if (this.pendingSid === frame.sid) this.pendingCount++; else { this.pendingSid = frame.sid; this.pendingCount = 1; }
+          if (this.pendingCount < 2) return { accepted: false, otherSession: true };
+          this._begin(frame);
+        }
+        this.pendingSid = -1; this.pendingCount = 0;
+        if (frame.total !== this.total) return { accepted: false };
+        var isLast = frame.idx === this.total - 1;
+        if (!isLast) {
+          if (this.chunkLen === 0) this.chunkLen = frame.chunk.length;
+          else if (frame.chunk.length !== this.chunkLen) return { accepted: false };
+        } else if (this.chunkLen && frame.chunk.length > this.chunkLen) {
+          return { accepted: false };
+        }
+        if (this.chunks[frame.idx]) return { accepted: true, duplicate: true, idx: frame.idx };
+        this.chunks[frame.idx] = new Uint8Array(frame.chunk);   // 呼び出し元のバッファから切り離す
+        this.got++;
+        return { accepted: true, idx: frame.idx, complete: this.got === this.total };
+      };
+      Receiver.prototype._begin = function (frame) {
+        this.sid = frame.sid; this.total = frame.total; this.got = 0;
+        this.chunks = new Array(frame.total).fill(null); this.chunkLen = 0;
+        this.startedAt = Date.now();
+      };
+      Receiver.prototype.isComplete = function () { return this.total > 0 && this.got === this.total; };
+      Receiver.prototype.assemble = function () {
+        if (!this.isComplete()) return null;
+        var len = 0;
+        for (var i = 0; i < this.total; i++) len += this.chunks[i].length;
+        var out = new Uint8Array(len), p = 0;
+        for (var j = 0; j < this.total; j++) { out.set(this.chunks[j], p); p += this.chunks[j].length; }
+        return out;
+      };
+      Receiver.prototype.missing = function () {
+        var m = [];
+        for (var i = 0; i < this.total; i++) if (!this.chunks[i]) m.push(i);
+        return m;
+      };
+
+      var api = { MAGIC: MAGIC, HEADER: HEADER, crc32: crc32, hasCompression: hasCompression, deflate: deflate, inflate: inflate,
+                  buildStream: buildStream, parseStream: parseStream, splitFrames: splitFrames, parseFrame: parseFrame, Receiver: Receiver };
+      if (typeof module !== "undefined" && module.exports) module.exports = api;
+      global.QRTProto = api;
+    })(typeof window !== "undefined" ? window : globalThis);
+    // ===== QRT PROTO END =====
+  </script>
+
+  <!-- ════════ アプリ本体 ════════ -->
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const P = window.QRTProto;
+
+      // ── 共通 UI ──
+      let toastTimer = 0;
+      function toast(msg, isErr) {
+        const t = $("toast");
+        t.textContent = msg; t.style.color = isErr ? "var(--red)" : "";
+        t.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+      }
+      function fmtBytes(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / 1048576).toFixed(2) + " MB";
+      }
+      function fmtTime(sec) {
+        sec = Math.max(0, Math.round(sec));
+        return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+      }
+      function switchTab(name) {
+        $("tab-tx").classList.toggle("on", name === "tx");
+        $("tab-rx").classList.toggle("on", name === "rx");
+        $("panel-tx").classList.toggle("on", name === "tx");
+        $("panel-rx").classList.toggle("on", name === "rx");
+        if (name === "tx") stopCamera();
+      }
+      $("tab-tx").addEventListener("click", () => switchTab("tx"));
+      $("tab-rx").addEventListener("click", () => switchTab("rx"));
+      $("btn-help").addEventListener("click", () => $("help").classList.add("on"));
+      $("help-close").addEventListener("click", () => $("help").classList.remove("on"));
+      $("help").addEventListener("click", e => { if (e.target === $("help")) $("help").classList.remove("on"); });
+
+      // 画面を消灯させない（対応端末のみ）
+      let wakeLock = null;
+      async function keepAwake(on) {
+        try {
+          if (on && !wakeLock && navigator.wakeLock) {
+            wakeLock = await navigator.wakeLock.request("screen");
+            wakeLock.addEventListener("release", () => { wakeLock = null; });
+          } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+        } catch (e) { wakeLock = null; }
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && (tx.running || rx.stream)) keepAwake(true);
+      });
+
+      // ══════════════════════════════════════════════
+      //  QR エンコード（バイトモード・バージョン固定・マスク固定で高速）
+      // ══════════════════════════════════════════════
+      /** version / eclName で QR 1 枚に入る最大バイト数 */
+      function qrCapacity(version, eclName) {
+        return qrDataCodewords(version, QR_ECC[eclName].ord) - (version <= 9 ? 2 : 3);
+      }
+      function qrEncodeBytes(bytes, version, eclName, mask) {
+        const ecl = QR_ECC[eclName];
+        const capacityBits = qrDataCodewords(version, ecl.ord) * 8;
+        const bits = [];
+        const append = (val, len) => { for (let b = len - 1; b >= 0; b--) bits.push((val >>> b) & 1); };
+        append(0b0100, 4);
+        append(bytes.length, qrCharCountBits(version));
+        for (let i = 0; i < bytes.length; i++) append(bytes[i], 8);
+        if (bits.length > capacityBits) throw new Error("QR に入りきりません");
+        append(0, Math.min(4, capacityBits - bits.length));
+        while (bits.length % 8 !== 0) bits.push(0);
+        for (let pad = 0xEC; bits.length < capacityBits; pad ^= 0xEC ^ 0x11) append(pad, 8);
+        const dataCW = [];
+        for (let p = 0; p < bits.length; p += 8) {
+          let b = 0;
+          for (let q = 0; q < 8; q++) b = (b << 1) | bits[p + q];
+          dataCW.push(b);
+        }
+        return qrBuildMatrix(qrAddEcc(dataCW, version, ecl.ord), version, ecl, mask);
+      }
+      /** 行列を白地のキャンバスへ。1 モジュール整数 px・静穏域 4 モジュール */
+      function drawMatrix(canvas, matrix, sizePx) {
+        const n = matrix.length, quiet = 4, tot = n + quiet * 2;
+        const ms = Math.max(1, Math.floor(sizePx / tot));
+        const dim = ms * tot;
+        if (canvas.width !== dim || canvas.height !== dim) { canvas.width = dim; canvas.height = dim; }
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, dim, dim);
+        ctx.fillStyle = "#000";
+        for (let y = 0; y < n; y++) {
+          const row = matrix[y];
+          let x = 0;
+          while (x < n) {                        // 連続する黒を 1 回の fillRect にまとめる
+            if (!row[x]) { x++; continue; }
+            let x2 = x; while (x2 < n && row[x2]) x2++;
+            ctx.fillRect((x + quiet) * ms, (y + quiet) * ms, (x2 - x) * ms, ms);
+            x = x2;
+          }
+        }
+        return dim;
+      }
+
+      // ══════════════════════════════════════════════
+      //  送る
+      // ══════════════════════════════════════════════
+      const tx = {
+        kind: "text", file: null, prepared: null, running: false, paused: false,
+        frames: null, matrices: null, idx: 0, loop: 1, timer: 0, startedAt: 0, version: 12, ecl: "M", elapsedTimer: 0
+      };
+      let prepSeq = 0;
+
+      $("tx-kind").addEventListener("click", e => {
+        const b = e.target.closest("button"); if (!b) return;
+        tx.kind = b.dataset.kind;
+        [...$("tx-kind").children].forEach(x => x.classList.toggle("on", x === b));
+        $("tx-text-card").style.display = tx.kind === "text" ? "" : "none";
+        $("tx-file-card").style.display = tx.kind === "file" ? "" : "none";
+        schedulePrepare();
+      });
+      $("tx-text").addEventListener("input", schedulePrepare);
+      $("tx-text-clear").addEventListener("click", () => { $("tx-text").value = ""; schedulePrepare(); });
+      $("tx-paste").addEventListener("click", async () => {
+        try {
+          const t = await navigator.clipboard.readText();
+          if (!t) { toast("クリップボードにテキストがありません", true); return; }
+          $("tx-text").value = t; schedulePrepare();
+        } catch (e) { toast("貼り付けできません。長押しで貼り付けてください", true); }
+      });
+      $("tx-file-btn").addEventListener("click", () => $("tx-file").click());
+      $("tx-file").addEventListener("change", () => {
+        const f = $("tx-file").files && $("tx-file").files[0];
+        tx.file = f || null;
+        $("tx-file-name").textContent = f ? (f.name + "（" + fmtBytes(f.size) + "）") : "未選択";
+        $("tx-shrink-field").style.display = (f && /^image\//.test(f.type)) ? "" : "none";
+        schedulePrepare();
+      });
+      $("tx-shrink").addEventListener("change", schedulePrepare);
+      $("tx-ver").addEventListener("change", updateStats);
+      $("tx-ecl").addEventListener("change", updateStats);
+      $("tx-fps").addEventListener("input", () => { $("tx-fps-val").textContent = $("tx-fps").value; updateStats(); });
+
+      let prepTimer = 0;
+      function schedulePrepare() {
+        // 準備が終わるまでは古いデータで送信できないようにする
+        tx.prepared = null; updateStats();
+        $("tx-start").textContent = "準備中…";
+        clearTimeout(prepTimer); prepTimer = setTimeout(prepare, 250);
+      }
+
+      /** 画像を縮小して JPEG にする（失敗したら元のまま返す） */
+      function shrinkImage(file, maxSide) {
+        return new Promise(resolve => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+            const c = document.createElement("canvas"); c.width = w; c.height = h;
+            c.getContext("2d").drawImage(img, 0, 0, w, h);
+            c.toBlob(blob => {
+              if (!blob) { resolve(null); return; }
+              const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+              resolve(new File([blob], name, { type: "image/jpeg" }));
+            }, "image/jpeg", 0.78);
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+          img.src = url;
+        });
+      }
+
+      /** 入力からストリームを作り、統計を更新する */
+      async function prepare() {
+        const seq = ++prepSeq;
+        tx.prepared = null; $("tx-err").textContent = "";
+        let raw, meta;
+        try {
+          if (tx.kind === "text") {
+            const t = $("tx-text").value;
+            if (!t) { updateStats(); return; }
+            raw = new TextEncoder().encode(t); meta = { isFile: false };
+          } else {
+            let f = tx.file;
+            if (!f) { updateStats(); return; }
+            const shrink = Number($("tx-shrink").value);
+            if (/^image\//.test(f.type) && shrink > 0) {
+              const s = await shrinkImage(f, shrink);
+              if (seq !== prepSeq) return;
+              if (s && s.size < f.size) f = s;
+            }
+            raw = new Uint8Array(await f.arrayBuffer());
+            meta = { isFile: true, name: f.name, mime: f.type || "application/octet-stream" };
+          }
+          if (seq !== prepSeq) return;
+          const r = await P.buildStream(raw, meta);
+          if (seq !== prepSeq) return;
+          tx.prepared = { stream: r.stream, rawLength: r.rawLength, compressed: r.compressed, meta };
+        } catch (e) {
+          $("tx-err").textContent = "準備に失敗: " + (e.message || e);
+        }
+        updateStats();
+      }
+
+      function currentChunkLen() {
+        return qrCapacity(Number($("tx-ver").value), $("tx-ecl").value) - P.HEADER;
+      }
+      function updateStats() {
+        const p = tx.prepared;
+        const fps = Number($("tx-fps").value);
+        $("tx-start").textContent = "送信をはじめる";
+        if (!p) {
+          ["st-size", "st-comp", "st-frames", "st-time"].forEach(id => $(id).textContent = "—");
+          $("tx-start").disabled = true;
+          return;
+        }
+        const chunk = currentChunkLen();
+        const frames = Math.max(1, Math.ceil(p.stream.length / chunk));
+        $("st-size").textContent = fmtBytes(p.rawLength);
+        $("st-comp").textContent = p.compressed ? fmtBytes(p.stream.length) + "（" + Math.round(100 * p.stream.length / Math.max(1, p.rawLength)) + "%）" : "圧縮なし";
+        $("st-frames").textContent = frames + " 枚（1 枚 " + chunk + " B）";
+        $("st-time").textContent = "約 " + fmtTime(frames / fps) + "（" + fmtBytes(Math.round(chunk * fps)) + "/秒）";
+        const tooMany = frames > 65535;
+        $("tx-err").textContent = tooMany ? "データが大きすぎます（QR " + frames + " 枚）。写真を縮小するか、分けて送ってください。" : "";
+        $("tx-start").disabled = tooMany;
+      }
+
+      $("tx-start").addEventListener("click", startSending);
+      $("tx-pause").addEventListener("click", () => {
+        tx.paused = !tx.paused;
+        $("tx-pause").textContent = tx.paused ? "再開" : "一時停止";
+        if (!tx.paused) tickSend();
+      });
+      $("tx-stop").addEventListener("click", stopSending);
+
+      function startSending() {
+        const p = tx.prepared; if (!p) return;
+        tx.version = Number($("tx-ver").value); tx.ecl = $("tx-ecl").value;
+        const sid = (crypto.getRandomValues ? crypto.getRandomValues(new Uint16Array(1))[0] : (Math.random() * 65536) | 0);
+        try {
+          tx.frames = P.splitFrames(p.stream, currentChunkLen(), sid);
+        } catch (e) { $("tx-err").textContent = String(e.message || e); return; }
+        tx.matrices = new Array(tx.frames.length).fill(null);
+        tx.idx = 0; tx.loop = 1; tx.running = true; tx.paused = false; tx.startedAt = Date.now();
+        $("tx-total").textContent = tx.frames.length;
+        $("tx-pause").textContent = "一時停止";
+        $("tx-screen").classList.add("on");
+        keepAwake(true);
+        layoutSendCanvas();
+        tickSend();
+        clearInterval(tx.elapsedTimer);
+        tx.elapsedTimer = setInterval(() => { $("tx-elapsed").textContent = fmtTime((Date.now() - tx.startedAt) / 1000); }, 1000);
+      }
+      function stopSending() {
+        tx.running = false;
+        clearTimeout(tx.timer); clearInterval(tx.elapsedTimer);
+        $("tx-screen").classList.remove("on");
+        if (!rx.stream) keepAwake(false);
+      }
+      let sendPx = 300;
+      function layoutSendCanvas() {
+        const wrap = $("tx-wrap");
+        const r = wrap.getBoundingClientRect();
+        sendPx = Math.max(120, Math.floor(Math.min(r.width, r.height) * 0.96));
+        const c = $("tx-canvas");
+        c.style.width = c.style.height = "";
+      }
+      window.addEventListener("resize", () => { if (tx.running) { layoutSendCanvas(); showFrame(tx.idx); } });
+
+      function matrixFor(i) {
+        if (!tx.matrices[i]) tx.matrices[i] = qrEncodeBytes(tx.frames[i], tx.version, tx.ecl, i % 8);
+        return tx.matrices[i];
+      }
+      function showFrame(i) {
+        drawMatrix($("tx-canvas"), matrixFor(i), sendPx);
+        $("tx-idx").textContent = i + 1;
+        $("tx-loop").textContent = tx.loop;
+        $("tx-prog").firstElementChild.style.width = (100 * (i + 1) / tx.frames.length) + "%";
+      }
+      function tickSend() {
+        if (!tx.running || tx.paused) return;
+        showFrame(tx.idx);
+        tx.idx++;
+        if (tx.idx >= tx.frames.length) { tx.idx = 0; tx.loop++; }
+        // 相手の解析周期と同期して同じ枚を取りこぼし続けないよう、間隔を少し揺らす
+        const base = 1000 / Number($("tx-fps").value);
+        const jitter = base * (Math.random() * 0.3 - 0.15);
+        tx.timer = setTimeout(tickSend, base + jitter);
+      }
+
+      // ══════════════════════════════════════════════
+      //  受け取る
+      // ══════════════════════════════════════════════
+      const rx = { stream: null, timer: 0, busy: false, receiver: new P.Receiver(), lastHit: 0, decodeLongSide: 640, result: null, frameCount: 0, decMs: 0 };
+      const video = $("rx-video");
+      const cap = document.createElement("canvas");
+      const cctx = cap.getContext("2d", { willReadFrequently: true });
+
+      // ── デコーダ Worker（BarcodeTool と同じ方式: <script id="dec-core-src"> を流し込む）──
+      let worker = null, workerDead = false, workerSeq = 0;
+      const workerCbs = new Map();
+      function getWorker() {
+        if (worker || workerDead) return worker;
+        const el = $("dec-core-src");
+        if (!el || typeof Worker === "undefined") { workerDead = true; return null; }
+        try {
+          const src = el.textContent +
+            "\nself.onmessage = function (e) {\n" +
+            "  var m = e.data, t0 = Date.now(), res;\n" +
+            "  try { res = BarcodeDecoder.decodeImage({ data: new Uint8ClampedArray(m.buf), width: m.width, height: m.height }, m.opts); }\n" +
+            "  catch (err) { res = { results: [], log: ['exception: ' + err.message] }; }\n" +
+            "  res.bits = null;\n" +
+            "  self.postMessage({ id: m.id, res: res, ms: Date.now() - t0 });\n" +
+            "};\n";
+          const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+          worker = new Worker(url);
+          URL.revokeObjectURL(url);
+          worker.onmessage = e => { const cb = workerCbs.get(e.data.id); if (cb) { workerCbs.delete(e.data.id); cb(e.data.res, e.data.ms); } };
+          worker.onerror = () => killWorker();
+        } catch (e) { worker = null; workerDead = true; }
+        return worker;
+      }
+      function killWorker() {
+        workerDead = true;
+        if (worker) { try { worker.terminate(); } catch (e) { } worker = null; }
+        const cbs = [...workerCbs.values()]; workerCbs.clear();
+        cbs.forEach(cb => cb(null, 0));
+      }
+      function decodeSync(frame, opts) {
+        const t0 = performance.now();
+        let res;
+        try { res = BarcodeDecoder.decodeImage(frame, opts); } catch (e) { res = { results: [] }; }
+        return { res, ms: performance.now() - t0 };
+      }
+      function decodeFrame(frame, opts, cb) {
+        const w = getWorker();
+        if (!w) { const r = decodeSync(frame, opts); cb(r.res, r.ms); return; }
+        const id = ++workerSeq;
+        let done = false;
+        const timer = setTimeout(() => { if (done) return; done = true; workerCbs.delete(id); killWorker(); cb(null, 0); }, 8000);
+        workerCbs.set(id, (res, ms) => { if (done) return; done = true; clearTimeout(timer); cb(res, ms); });
+        try {
+          w.postMessage({ id, buf: frame.data.buffer, width: frame.width, height: frame.height, opts }, [frame.data.buffer]);
+        } catch (e) {
+          done = true; clearTimeout(timer); workerCbs.delete(id); killWorker();
+          const r = decodeSync(frame, opts); cb(r.res, r.ms);
+        }
+      }
+
+      $("rx-start").addEventListener("click", startCamera);
+      $("rx-stop").addEventListener("click", () => { stopCamera(); $("rx-msg").textContent = "停止しました"; });
+      $("rs-again").addEventListener("click", () => { resetReceive(); startCamera(); });
+
+      async function startCamera() {
+        if (rx.stream) return;
+        resetReceive();
+        try {
+          rx.stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+            audio: false
+          });
+        } catch (e1) {
+          try { rx.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+          catch (e2) { $("rx-err").textContent = "カメラを起動できません: " + (e2.name || e2) + "（HTTPS で開いているか、カメラの許可を確認してください）"; return; }
+        }
+        const track = rx.stream.getVideoTracks()[0];
+        if (track && track.applyConstraints) { try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) { } }
+        video.srcObject = rx.stream;
+        try { await video.play(); } catch (e) { }
+        $("rx-start").disabled = true; $("rx-stop").disabled = false;
+        $("rx-msg").textContent = "相手の画面の QR を枠に入れてください";
+        keepAwake(true);
+        getWorker();
+        rx.busy = false;
+        pump();
+      }
+      function stopCamera() {
+        clearTimeout(rx.timer); rx.timer = 0;
+        if (rx.stream) { rx.stream.getTracks().forEach(t => { try { t.stop(); } catch (e) { } }); rx.stream = null; }
+        video.srcObject = null;
+        $("rx-start").disabled = false; $("rx-stop").disabled = true;
+        if (!tx.running) keepAwake(false);
+      }
+      function resetReceive() {
+        rx.receiver.reset(); rx.result = null; rx.frameCount = 0;
+        $("rx-result").classList.remove("on"); $("rx-err").textContent = "";
+        $("rx-grid").innerHTML = ""; $("rx-prog").firstElementChild.style.width = "0";
+        $("rx-frame").classList.remove("hit");
+        $("rx-img").style.display = "none"; $("rx-img").src = "";
+        $("rx-text").style.display = "none";
+        if (rx.result && rx.result.url) URL.revokeObjectURL(rx.result.url);
+      }
+
+      /** カメラ 1 フレームを解析 → 受信器へ。終わったら次を予約 */
+      function pump() {
+        if (!rx.stream) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh || rx.busy) { rx.timer = setTimeout(pump, 40); return; }
+        // 中央の正方形（枠の少し外側まで）だけを切り出して解析。端の景色を捨てて速くする
+        const side = Math.round(Math.min(vw, vh) * 0.9);
+        const sx = Math.round((vw - side) / 2), sy = Math.round((vh - side) / 2);
+        const k = Math.min(1, rx.decodeLongSide / side);
+        const fw = Math.max(1, Math.round(side * k));
+        if (cap.width !== fw || cap.height !== fw) { cap.width = fw; cap.height = fw; }
+        cctx.drawImage(video, sx, sy, side, side, 0, 0, fw, fw);
+        const frame = cctx.getImageData(0, 0, fw, fw);
+        rx.busy = true;
+        decodeFrame(frame, { variants: ["hybrid"], maxCodes: 1 }, (res, ms) => {
+          rx.busy = false;
+          if (!rx.stream) return;
+          rx.decMs = ms;
+          // 解析が重い端末では解像度を落とす（1 枚 220ms を超えたら）
+          if (ms > 220 && rx.decodeLongSide > 400) rx.decodeLongSide -= 80;
+          else if (ms < 80 && rx.decodeLongSide < 800) rx.decodeLongSide += 40;
+          if (res) handleDecode(res);
+          rx.timer = setTimeout(pump, 0);
+        });
+      }
+
+      function handleDecode(res) {
+        const hits = (res.results || []).filter(r => r.kind === "qr" && r.bytes);
+        let hit = false;
+        for (const r of hits) {
+          const f = P.parseFrame(r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes));
+          if (!f) continue;
+          hit = true;
+          onFrame(f);
+        }
+        if (hit) rx.lastHit = Date.now();
+        $("rx-frame").classList.toggle("hit", Date.now() - rx.lastHit < 600);
+      }
+      function onFrame(f) {
+        const before = rx.receiver.total;
+        const st = rx.receiver.feed(f);
+        if (!st.accepted) return;
+        if (rx.receiver.total !== before || $("rx-grid").children.length !== rx.receiver.total) buildGrid(rx.receiver.total);
+        if (!st.duplicate) markGrid(st.idx);
+        updateRxStatus();
+        if (st.complete) finishReceive();
+      }
+      function buildGrid(total) {
+        const g = $("rx-grid");
+        g.innerHTML = "";
+        if (total > 600) { g.style.display = "none"; return; }
+        g.style.display = "";
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < total; i++) frag.appendChild(document.createElement("i"));
+        g.appendChild(frag);
+      }
+      function markGrid(i) { const c = $("rx-grid").children[i]; if (c) c.classList.add("ok"); }
+      function updateRxStatus() {
+        const R = rx.receiver;
+        const pct = R.total ? Math.round(100 * R.got / R.total) : 0;
+        $("rx-prog").firstElementChild.style.width = pct + "%";
+        const el = (Date.now() - R.startedAt) / 1000;
+        const rate = el > 0.5 ? R.got / el : 0;
+        const remain = rate > 0 ? (R.total - R.got) / rate : 0;
+        $("rx-msg").innerHTML = "<b>" + R.got + "</b> / " + R.total + " 枚（" + pct + "%）" +
+          (R.got < R.total && rate > 0 ? " ・ 残り約 " + fmtTime(remain) : "") +
+          (rx.decMs ? " ・ 解析 " + Math.round(rx.decMs) + "ms" : "");
+      }
+
+      async function finishReceive() {
+        const R = rx.receiver;
+        const elapsed = (Date.now() - R.startedAt) / 1000;
+        const stream = R.assemble();
+        stopCamera();
+        const r = await P.parseStream(stream);
+        if (!r.ok) {
+          $("rx-err").textContent = "復元できませんでした: " + r.error + "。もう一度受け取ってください。";
+          $("rx-msg").textContent = "失敗";
+          R.reset();
+          return;
+        }
+        beep();
+        rx.result = r;
+        $("rs-kind").textContent = r.isFile ? (r.mime || "ファイル") : "テキスト";
+        $("rs-size").textContent = fmtBytes(r.data.length);
+        $("rs-time").textContent = fmtTime(elapsed) + "（" + fmtBytes(Math.round(stream.length / Math.max(0.1, elapsed))) + "/秒）";
+        $("rs-frames").textContent = R.total + " 枚";
+        const blob = new Blob([r.data], { type: r.isFile ? (r.mime || "application/octet-stream") : "text/plain;charset=utf-8" });
+        const name = r.isFile ? (r.name || "received.bin") : ("received-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".txt");
+        r.url = URL.createObjectURL(blob); r.blob = blob; r.fileName = name;
+        const dl = $("rs-download"); dl.href = r.url; dl.download = name;
+        if (r.isFile) {
+          $("rx-text").style.display = "none"; $("rs-copy").style.display = "none";
+          if (/^image\//.test(r.mime)) { $("rx-img").src = r.url; $("rx-img").style.display = "block"; }
+        } else {
+          r.text = new TextDecoder().decode(r.data);
+          $("rx-text").value = r.text; $("rx-text").style.display = ""; $("rs-copy").style.display = "";
+        }
+        $("rx-result").classList.add("on");
+        $("rx-msg").textContent = "完了";
+        $("rx-result").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      $("rs-copy").addEventListener("click", async () => {
+        const r = rx.result; if (!r || r.isFile) return;
+        try { await navigator.clipboard.writeText(r.text); toast("コピーしました"); }
+        catch (e) { $("rx-text").select(); try { document.execCommand("copy"); toast("コピーしました"); } catch (e2) { toast("コピーできません", true); } }
+      });
+      $("rs-share").addEventListener("click", async () => {
+        const r = rx.result; if (!r) return;
+        try {
+          const file = new File([r.blob], r.fileName, { type: r.blob.type });
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: r.fileName });
+          } else if (navigator.share && !r.isFile) {
+            await navigator.share({ text: r.text });
+          } else {
+            $("rs-download").click();
+          }
+        } catch (e) { /* キャンセル */ }
+      });
+
+      // 完了音（AudioContext はユーザー操作後なら鳴らせる）
+      function beep() {
+        try {
+          const ac = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = "sine"; o.frequency.value = 880; g.gain.value = 0.08;
+          o.connect(g); g.connect(ac.destination);
+          o.start(); o.frequency.setValueAtTime(1320, ac.currentTime + 0.12);
+          o.stop(ac.currentTime + 0.25);
+          setTimeout(() => ac.close(), 500);
+        } catch (e) { }
+      }
+
+      // ── URL の ?text=… で送信テキストを事前入力（ショートカット連携用）──
+      try {
+        const q = new URLSearchParams(location.search);
+        if (q.get("tab") === "rx") switchTab("rx");
+        if (q.get("text")) { $("tx-text").value = q.get("text"); schedulePrepare(); }
+      } catch (e) { }
+
+      // ── テスト用フック（ブラウザ自動テストから直接叩く）──
+      window.QRT = {
+        proto: P, qrCapacity, qrEncodeBytes, drawMatrix,
+        tx, rx,
+        prepare, startSending, stopSending, showFrame,
+        feedImageData(imageData) { return new Promise(res => decodeFrame(imageData, { variants: ["hybrid"], maxCodes: 1 }, r => { if (r) handleDecode(r); res(r); })); },
+        resetReceive
+      };
+    })();
+  </script>
+</body>
+</html>

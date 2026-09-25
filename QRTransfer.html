@@ -1,0 +1,4108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QR転送">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>QR転送 — 通信ゼロで iPhone 同士のデータ受け渡し</title>
+  <!--
+    QR転送 (QRTransfer.html)
+    送る側がデータを分割した QR コードを連続表示し、受け取る側がカメラで読み取って復元する。
+    Wi-Fi・Bluetooth・インターネットを一切使わない（画面と光だけ）。
+    このファイルは scripts/build-qrtransfer.mjs が qrtransfer/template.html と BarcodeTool.html から生成する。
+    生成日: 2026-09-25
+  -->
+  <style>
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+      --blue: #1e66f5; --blue-hover: #4d88f7; --blue-light: #89b4fa;
+      --red: #f38ba8; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387; --mauve: #cba6f7; --sky: #89dceb;
+      --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body {
+      background: var(--base); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      font-size: 15px; line-height: 1.5;
+      display: flex; flex-direction: column; overflow: hidden;
+      padding-top: var(--sat);
+    }
+    header {
+      background: var(--mantle); border-bottom: 1px solid var(--surface0);
+      padding: 10px 16px 0; flex-shrink: 0;
+    }
+    .hd-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    h1 { font-size: 17px; font-weight: 700; color: var(--blue-light); }
+    .hd-desc { font-size: 12px; color: var(--overlay); }
+    .hd-link { background: none; border: none; color: var(--blue-light); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: inherit; padding: 4px 0; white-space: nowrap; flex-shrink: 0; }
+    .tabs { display: flex; margin-top: 8px; }
+    .tab {
+      flex: 1; height: 44px; border: none; border-bottom: 3px solid transparent; background: none;
+      color: var(--subtext); font-size: 16px; font-weight: 600; font-family: inherit; cursor: pointer;
+    }
+    .tab.on { color: var(--blue-light); border-bottom-color: var(--blue-light); }
+    main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px calc(24px + var(--sab)); }
+    .panel { display: none; max-width: 720px; margin: 0 auto; }
+    .panel.on { display: block; }
+
+    button, .btn {
+      font-family: inherit; font-size: 15px; font-weight: 600; border-radius: 10px;
+      border: 1px solid var(--surface1); background: var(--surface0); color: var(--text);
+      min-height: 44px; padding: 8px 16px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      text-decoration: none; transition: background-color .15s ease, transform .1s ease;
+    }
+    button:active, .btn:active { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: default; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .primary:hover { background: var(--blue-hover); }
+    .danger { color: var(--red); }
+    .wide { width: 100%; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .row > * { flex: 1 1 auto; white-space: nowrap; }
+    .seg { display: flex; border: 1px solid var(--surface1); border-radius: 10px; overflow: hidden; }
+    .seg button { flex: 1; border: none; border-radius: 0; background: none; font-weight: 500; }
+    .seg button.on { background: var(--surface1); color: var(--blue-light); font-weight: 700; }
+    textarea, input[type=text] {
+      width: 100%; font-family: inherit; font-size: 16px; color: var(--text); background: var(--mantle);
+      border: 1px solid var(--surface1); border-radius: 10px; padding: 10px; outline: none; resize: vertical;
+    }
+    textarea:focus { border-color: var(--blue-light); }
+    select, input[type=range] { font-family: inherit; font-size: 15px; color: var(--text); }
+    select { background: var(--surface0); border: 1px solid var(--surface1); border-radius: 8px; height: 40px; padding: 0 8px; width: 100%; }
+    input[type=range] { width: 100%; accent-color: var(--blue-light); }
+    .card { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 14px; margin-top: 12px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: var(--subtext); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 13px; color: var(--subtext); margin-bottom: 4px; }
+    .hint { font-size: 12px; color: var(--overlay); margin-top: 6px; }
+    .stat { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 14px; }
+    .stat b { color: var(--yellow); font-weight: 600; }
+    .stat span { color: var(--subtext); }
+    .filebox { display: flex; align-items: center; gap: 10px; }
+    .filename { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+    .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+    .toast {
+      position: fixed; left: 50%; bottom: calc(24px + var(--sab)); transform: translateX(-50%);
+      background: var(--surface1); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw;
+    }
+    .toast.show { opacity: 1; }
+
+    /* ── 送信中の全画面表示 ── */
+    #tx-screen { position: fixed; inset: 0; background: #fff; display: none; flex-direction: column; z-index: 20; padding-top: var(--sat); }
+    #tx-screen.on { display: flex; }
+    #tx-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+    #tx-canvas { image-rendering: pixelated; image-rendering: crisp-edges; max-width: 100%; max-height: 100%; }
+    #tx-bar { background: var(--mantle); color: var(--text); padding: 10px 16px calc(10px + var(--sab)); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #tx-bar .info { flex: 1; font-size: 14px; min-width: 160px; }
+    #tx-bar .info b { color: var(--yellow); }
+    #tx-prog { height: 4px; background: var(--surface0); }
+    #tx-prog i { display: block; height: 100%; background: var(--blue-light); width: 0; transition: width .1s linear; }
+
+    /* ── 受信 ── */
+    #rx-view { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 3 / 4; max-height: 62vh; margin-top: 12px; }
+    #rx-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #rx-overlay { position: absolute; inset: 0; pointer-events: none; }
+    #rx-frame { position: absolute; left: 12%; top: 12%; width: 76%; aspect-ratio: 1; border: 2px dashed rgba(255,255,255,.55); border-radius: 12px; }
+    #rx-frame.hit { border-color: var(--green); border-style: solid; }
+    #rx-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 12px; background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; font-size: 14px; }
+    #rx-status b { color: var(--yellow); }
+    #rx-prog { height: 6px; background: rgba(255,255,255,.25); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+    #rx-prog i { display: block; height: 100%; width: 0; background: var(--green); transition: width .15s; }
+    #rx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14px, 1fr)); gap: 3px; margin-top: 10px; }
+    #rx-grid i { display: block; aspect-ratio: 1; background: var(--surface0); border-radius: 2px; }
+    #rx-grid i.ok { background: var(--green); }
+    #rx-result { display: none; }
+    #rx-result.on { display: block; }
+    #rx-result .done { font-size: 20px; font-weight: 700; color: var(--green); }
+    #rx-img { max-width: 100%; max-height: 50vh; border-radius: 8px; display: none; margin-top: 10px; }
+    #rx-text { min-height: 120px; margin-top: 10px; user-select: text; -webkit-user-select: text; }
+
+    /* ── ヘルプ ── */
+    #help { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 40; }
+    #help.on { display: flex; }
+    #help .sheet { background: var(--mantle); border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + var(--sab)); max-width: 720px; width: 100%; max-height: 85vh; overflow-y: auto; }
+    #help h2 { font-size: 16px; margin-bottom: 8px; color: var(--blue-light); }
+    #help p, #help li { font-size: 14px; color: var(--subtext); margin-bottom: 6px; }
+    #help ol { padding-left: 20px; }
+    #help .close { margin-top: 12px; }
+    @media (min-width: 720px) { #help { align-items: center; } #help .sheet { border-radius: 16px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="hd-row">
+      <div>
+        <h1>QR転送</h1>
+        <div class="hd-desc">通信ゼロ。画面の QR を相手のカメラで読み取って渡す</div>
+      </div>
+      <button class="hd-link" id="btn-help" type="button">つかいかた</button>
+    </div>
+    <div class="tabs">
+      <button class="tab on" id="tab-tx" type="button">送る</button>
+      <button class="tab" id="tab-rx" type="button">受け取る</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ════════ 送る ════════ -->
+    <section class="panel on" id="panel-tx">
+      <div class="seg" id="tx-kind">
+        <button type="button" class="on" data-kind="text">テキスト</button>
+        <button type="button" data-kind="file">ファイル・写真</button>
+      </div>
+
+      <div class="card" id="tx-text-card">
+        <textarea id="tx-text" rows="6" placeholder="送りたい文章・URL・メモを入力" autocapitalize="off"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="tx-paste">クリップボードから貼り付け</button>
+          <button type="button" id="tx-text-clear">消去</button>
+        </div>
+      </div>
+
+      <div class="card" id="tx-file-card" style="display:none">
+        <div class="filebox">
+          <button type="button" id="tx-file-btn">ファイルを選ぶ</button>
+          <div class="filename" id="tx-file-name">未選択</div>
+        </div>
+        <input type="file" id="tx-file" style="display:none">
+        <div class="field" id="tx-shrink-field" style="display:none">
+          <label>写真の縮小（転送を速くする）</label>
+          <select id="tx-shrink">
+            <option value="640" selected>長辺 640px・JPEG（おすすめ）</option>
+            <option value="1024">長辺 1024px・JPEG</option>
+            <option value="0">縮小しない（元のまま）</option>
+          </select>
+        </div>
+        <div class="hint">写真は「写真ライブラリ」から選べます。大きなファイルは時間がかかります（目安: 1 分で約 100 KB）。</div>
+      </div>
+
+      <div class="card">
+        <h2>設定</h2>
+        <div class="row">
+          <div class="field">
+            <label>QR の大きさ</label>
+            <select id="tx-ver">
+              <option value="8">小（読み取りやすい）</option>
+              <option value="12" selected>中（おすすめ）</option>
+              <option value="16">大</option>
+              <option value="20">特大（速いが読み取りにくい）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>誤り訂正</label>
+            <select id="tx-ecl">
+              <option value="L">低（容量優先）</option>
+              <option value="M" selected>中（おすすめ）</option>
+              <option value="Q">高（画面が汚れている時）</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>切り替え速度: <b id="tx-fps-val">5</b> 枚/秒</label>
+          <input type="range" id="tx-fps" min="2" max="12" step="1" value="5">
+          <div class="hint">相手が「取りこぼし」を繰り返すときは遅くしてください。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="stat" id="tx-stat">
+          <span>データ量</span><b id="st-size">—</b>
+          <span>圧縮後</span><b id="st-comp">—</b>
+          <span>QR の枚数</span><b id="st-frames">—</b>
+          <span>1 周の時間</span><b id="st-time">—</b>
+        </div>
+        <div class="err" id="tx-err"></div>
+        <button type="button" class="primary wide" id="tx-start" style="margin-top:12px" disabled>送信をはじめる</button>
+        <div class="hint">画面の明るさを最大にし、相手のカメラに QR 全体が入るように向けてください。受け取り完了まで自動で繰り返します。</div>
+      </div>
+    </section>
+
+    <!-- ════════ 受け取る ════════ -->
+    <section class="panel" id="panel-rx">
+      <div class="row">
+        <button type="button" class="primary" id="rx-start">カメラをはじめる</button>
+        <button type="button" id="rx-stop" disabled>停止</button>
+      </div>
+      <div id="rx-view">
+        <video id="rx-video" playsinline muted autoplay></video>
+        <div id="rx-overlay">
+          <div id="rx-frame"></div>
+          <div id="rx-status">
+            <div id="rx-prog"><i></i></div>
+            <div id="rx-msg">相手の画面の QR を枠に入れてください</div>
+          </div>
+        </div>
+      </div>
+      <div id="rx-grid"></div>
+      <div class="hint" id="rx-hint">受信した QR が緑になります。取りこぼしは次の周回で自動的に埋まります。</div>
+      <div class="err" id="rx-err"></div>
+
+      <div class="card" id="rx-result">
+        <div class="done">✓ 受け取りました</div>
+        <div class="stat" style="margin-top:8px">
+          <span>種類</span><b id="rs-kind">—</b>
+          <span>サイズ</span><b id="rs-size">—</b>
+          <span>所要時間</span><b id="rs-time">—</b>
+          <span>QR の枚数</span><b id="rs-frames">—</b>
+        </div>
+        <img id="rx-img" alt="">
+        <textarea id="rx-text" readonly style="display:none"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="primary" id="rs-copy" style="display:none">コピー</button>
+          <button type="button" class="primary" id="rs-share">共有 / 保存</button>
+          <a class="btn" id="rs-download" download>ダウンロード</a>
+        </div>
+        <button type="button" class="wide" id="rs-again" style="margin-top:10px">もう一度受け取る</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ════════ 送信中（全画面） ════════ -->
+  <div id="tx-screen">
+    <div id="tx-wrap"><canvas id="tx-canvas" width="300" height="300"></canvas></div>
+    <div id="tx-prog"><i></i></div>
+    <div id="tx-bar">
+      <div class="info">QR <b id="tx-idx">0</b> / <span id="tx-total">0</span> 枚 ・ <b id="tx-loop">1</b> 周目 ・ <span id="tx-elapsed">0:00</span></div>
+      <button type="button" id="tx-pause">一時停止</button>
+      <button type="button" class="danger" id="tx-stop">終了</button>
+    </div>
+  </div>
+
+  <!-- ════════ ヘルプ ════════ -->
+  <div id="help">
+    <div class="sheet">
+      <h2>つかいかた</h2>
+      <ol>
+        <li><b>送る側</b>: 「送る」タブで文章かファイルを選び、「送信をはじめる」。画面に QR が次々と表示されます。</li>
+        <li><b>受け取る側</b>: 「受け取る」タブで「カメラをはじめる」。相手の画面の QR を枠に入れて、そのまま待ちます。</li>
+        <li>すべての QR を読み取ると自動で完了し、文章の表示や保存ができます。</li>
+      </ol>
+      <h2>コツ</h2>
+      <p>・送る側は画面の明るさを最大に。受け取る側はカメラを 15〜30 cm 離し、QR が枠いっぱいに入るように。</p>
+      <p>・取りこぼした QR は次の周回で自動的に埋まります。なかなか終わらないときは送る側の速度を下げるか、QR の大きさを「小」にしてください。</p>
+      <p>・通信は一切使いません（Wi-Fi・Bluetooth・インターネット不要）。データはこの画面の外に出ません。</p>
+      <p>・目安の速さ: 「中」設定で約 1.4 KB/秒。短い文章なら数秒、縮小した写真は 30 秒〜1 分程度です。</p>
+      <h2>仕組み</h2>
+      <p>データを圧縮して小さく分け、番号を付けて QR コード（バイトモード）に順番に入れます。受け取る側は番号ごとに集め、そろったら CRC32 で壊れていないことを確かめてから復元します。QR の生成・読み取りはどちらも BarcodeTool と同じ自前エンジンです。</p>
+      <button type="button" class="wide close" id="help-close">閉じる</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ════════ QR エンコーダ（BarcodeTool.html から抽出・原本不変） ════════ -->
+  <script>
+// ── QRコード (バイトモード, 自動バージョン/誤り訂正) ──
+    // アルゴリズムは Nayuki氏の QR Code generator (public domain) に準拠
+    const QR_ECC = { L: { ord: 0, fb: 1 }, M: { ord: 1, fb: 0 }, Q: { ord: 2, fb: 3 }, H: { ord: 3, fb: 2 } };
+    // 各バージョン(1-40)・各ECCレベルの「1ブロックあたりECCコードワード数」
+    const QR_ECC_CW = [
+      [-1,7,10,15,20,26,18,20,24,30,18,20,24,26,30,22,24,28,30,28,28,28,28,30,30,26,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],
+      [-1,10,16,26,18,24,16,18,22,22,26,30,22,22,24,24,28,28,26,26,26,26,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28],
+      [-1,13,22,18,26,18,24,18,22,20,24,28,26,24,20,30,24,28,28,26,30,28,30,30,30,30,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],
+      [-1,17,28,22,16,22,28,26,26,24,28,24,28,22,24,24,30,28,28,26,28,30,24,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30]
+    ];
+    // 各バージョン・各ECCレベルのブロック数
+    const QR_NUM_BLOCKS = [
+      [-1,1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25],
+      [-1,1,1,1,2,2,4,4,4,5,5,5,8,9,9,10,10,11,13,14,16,17,17,18,20,21,23,25,26,28,29,31,33,35,37,38,40,43,45,47,49],
+      [-1,1,1,2,2,4,4,6,6,8,8,8,10,12,16,12,17,16,18,21,20,23,23,25,27,29,34,34,35,38,40,43,45,48,51,53,56,59,62,65,68],
+      [-1,1,1,2,4,4,4,5,6,8,8,11,11,16,16,18,16,19,21,25,25,25,34,30,32,35,37,40,42,45,48,51,54,57,60,63,66,70,74,77,81]
+    ];
+
+    function qrMul(x, y) {
+      let z = 0;
+      for (let i = 7; i >= 0; i--) {
+        z = (z << 1) ^ ((z >>> 7) * 0x11D);
+        z ^= ((y >>> i) & 1) * x;
+      }
+      return z & 0xFF;
+    }
+    function qrRsDivisor(degree) {
+      const r = [];
+      for (let i = 0; i < degree - 1; i++) r.push(0);
+      r.push(1);
+      let root = 1;
+      for (let i = 0; i < degree; i++) {
+        for (let j = 0; j < r.length; j++) {
+          r[j] = qrMul(r[j], root);
+          if (j + 1 < r.length) r[j] ^= r[j + 1];
+        }
+        root = qrMul(root, 2);
+      }
+      return r;
+    }
+    function qrRsRemainder(data, divisor) {
+      const r = divisor.map(() => 0);
+      for (const b of data) {
+        const factor = b ^ r.shift();
+        r.push(0);
+        divisor.forEach((c, i) => r[i] ^= qrMul(c, factor));
+      }
+      return r;
+    }
+    function qrRawDataModules(ver) {
+      let result = (16 * ver + 128) * ver + 64;
+      if (ver >= 2) {
+        const n = Math.floor(ver / 7) + 2;
+        result -= (25 * n - 10) * n - 55;
+        if (ver >= 7) result -= 36;
+      }
+      return result;
+    }
+    function qrDataCodewords(ver, eclOrd) {
+      return Math.floor(qrRawDataModules(ver) / 8) - QR_ECC_CW[eclOrd][ver] * QR_NUM_BLOCKS[eclOrd][ver];
+    }
+    function qrCharCountBits(ver) { return ver <= 9 ? 8 : 16; } // バイトモード
+
+    function qrUtf8(text) {
+      if (typeof TextEncoder !== "undefined") return Array.from(new TextEncoder().encode(text));
+      const out = [];
+      const s = unescape(encodeURIComponent(text));
+      for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+      return out;
+    }
+    function qrAlignPositions(ver) {
+      if (ver === 1) return [];
+      const size = ver * 4 + 17;
+      const num = Math.floor(ver / 7) + 2;
+      const step = (ver === 32) ? 26 : Math.ceil((size - 13) / (num * 2 - 2)) * 2;
+      const result = [6];
+      for (let pos = size - 7; result.length < num; pos -= step) result.splice(1, 0, pos);
+      return result;
+    }
+
+    // ECC付与 + ブロックインターリーブ
+    function qrAddEcc(data, ver, eclOrd) {
+      const numBlocks = QR_NUM_BLOCKS[eclOrd][ver];
+      const blockEccLen = QR_ECC_CW[eclOrd][ver];
+      const rawCW = Math.floor(qrRawDataModules(ver) / 8);
+      const numShort = numBlocks - rawCW % numBlocks;
+      const shortLen = Math.floor(rawCW / numBlocks);
+      const blocks = [];
+      const div = qrRsDivisor(blockEccLen);
+      for (let i = 0, k = 0; i < numBlocks; i++) {
+        const dat = data.slice(k, k + shortLen - blockEccLen + (i < numShort ? 0 : 1));
+        k += dat.length;
+        const ecc = qrRsRemainder(dat, div);
+        const block = dat.slice();
+        if (i < numShort) block.push(0);
+        for (const c of ecc) block.push(c);
+        blocks.push(block);
+      }
+      const result = [];
+      for (let i = 0; i < blocks[0].length; i++) {
+        for (let j = 0; j < blocks.length; j++) {
+          if (i !== shortLen - blockEccLen || j >= numShort) result.push(blocks[j][i]);
+        }
+      }
+      return result;
+    }
+
+    function qrDrawFormat(modules, isFn, ecl, mask, size) {
+      const data = (ecl.fb << 3) | mask;
+      let rem = data;
+      for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+      const bits = ((data << 10) | rem) ^ 0x5412;
+      const set = (x, y, b) => { modules[y][x] = b; isFn[y][x] = true; };
+      const gb = i => ((bits >>> i) & 1) === 1;
+      for (let i = 0; i <= 5; i++) set(8, i, gb(i));
+      set(8, 7, gb(6)); set(8, 8, gb(7)); set(7, 8, gb(8));
+      for (let i = 9; i < 15; i++) set(14 - i, 8, gb(i));
+      for (let i = 0; i < 8; i++) set(size - 1 - i, 8, gb(i));
+      for (let i = 8; i < 15; i++) set(8, size - 15 + i, gb(i));
+      set(8, size - 8, true); // ダークモジュール
+    }
+
+    function qrApplyMask(modules, isFn, mask) {
+      const size = modules.length;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          if (isFn[y][x]) continue;
+          let invert = false;
+          switch (mask) {
+            case 0: invert = (x + y) % 2 === 0; break;
+            case 1: invert = y % 2 === 0; break;
+            case 2: invert = x % 3 === 0; break;
+            case 3: invert = (x + y) % 3 === 0; break;
+            case 4: invert = (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0; break;
+            case 5: invert = (x * y) % 2 + (x * y) % 3 === 0; break;
+            case 6: invert = ((x * y) % 2 + (x * y) % 3) % 2 === 0; break;
+            case 7: invert = (((x + y) % 2) + ((x * y) % 3)) % 2 === 0; break;
+          }
+          if (invert) modules[y][x] = !modules[y][x];
+        }
+      }
+    }
+
+    // ペナルティ計算（マスク選定用）
+    function qrFinderAddHistory(run, hist, size) {
+      if (hist[0] === 0) run += size;
+      hist.pop();
+      hist.unshift(run);
+    }
+    function qrFinderCount(hist) {
+      const n = hist[1];
+      const core = n > 0 && hist[2] === n && hist[3] === n * 3 && hist[4] === n && hist[5] === n;
+      return (core && hist[0] >= n * 4 && hist[6] >= n ? 1 : 0)
+           + (core && hist[6] >= n * 4 && hist[0] >= n ? 1 : 0);
+    }
+    function qrFinderTerminate(color, run, hist, size) {
+      if (color) { qrFinderAddHistory(run, hist, size); run = 0; }
+      run += size;
+      qrFinderAddHistory(run, hist, size);
+      return qrFinderCount(hist);
+    }
+    function qrPenalty(modules, size) {
+      let result = 0;
+      const get = (x, y) => modules[y][x];
+      // 行
+      for (let y = 0; y < size; y++) {
+        let color = false, run = 0;
+        const hist = [0, 0, 0, 0, 0, 0, 0];
+        for (let x = 0; x < size; x++) {
+          if (get(x, y) === color) {
+            run++;
+            if (run === 5) result += 3;
+            else if (run > 5) result++;
+          } else {
+            qrFinderAddHistory(run, hist, size);
+            if (!color) result += qrFinderCount(hist) * 40;
+            color = get(x, y);
+            run = 1;
+          }
+        }
+        result += qrFinderTerminate(color, run, hist, size) * 40;
+      }
+      // 列
+      for (let x = 0; x < size; x++) {
+        let color = false, run = 0;
+        const hist = [0, 0, 0, 0, 0, 0, 0];
+        for (let y = 0; y < size; y++) {
+          if (get(x, y) === color) {
+            run++;
+            if (run === 5) result += 3;
+            else if (run > 5) result++;
+          } else {
+            qrFinderAddHistory(run, hist, size);
+            if (!color) result += qrFinderCount(hist) * 40;
+            color = get(x, y);
+            run = 1;
+          }
+        }
+        result += qrFinderTerminate(color, run, hist, size) * 40;
+      }
+      // 2x2の同色ブロック
+      for (let y = 0; y < size - 1; y++) {
+        for (let x = 0; x < size - 1; x++) {
+          const c = get(x, y);
+          if (c === get(x + 1, y) && c === get(x, y + 1) && c === get(x + 1, y + 1)) result += 3;
+        }
+      }
+      // 全体の白黒バランス
+      let dark = 0;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (get(x, y)) dark++;
+      const total = size * size;
+      const k = Math.ceil(Math.abs(dark * 20 - total * 10) / total) - 1;
+      result += k * 10;
+      return result;
+    }
+
+    function qrBuildMatrix(allCW, ver, ecl, forceMask) {
+      const size = ver * 4 + 17;
+      const modules = [], isFn = [];
+      for (let y = 0; y < size; y++) {
+        modules.push(new Array(size).fill(false));
+        isFn.push(new Array(size).fill(false));
+      }
+      const setFn = (x, y, val) => { modules[y][x] = val; isFn[y][x] = true; };
+
+      // タイミングパターン
+      for (let i = 0; i < size; i++) { setFn(6, i, i % 2 === 0); setFn(i, 6, i % 2 === 0); }
+      // ファインダ＋セパレータ
+      const finder = (cx, cy) => {
+        for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+          const dist = Math.max(Math.abs(dx), Math.abs(dy));
+          const x = cx + dx, y = cy + dy;
+          if (x >= 0 && x < size && y >= 0 && y < size) setFn(x, y, dist !== 2 && dist !== 4);
+        }
+      };
+      finder(3, 3); finder(size - 4, 3); finder(3, size - 4);
+      // 整列パターン
+      const aligns = qrAlignPositions(ver);
+      const num = aligns.length;
+      for (let i = 0; i < num; i++) for (let j = 0; j < num; j++) {
+        if ((i === 0 && j === 0) || (i === 0 && j === num - 1) || (i === num - 1 && j === 0)) continue;
+        const cx = aligns[i], cy = aligns[j];
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+          setFn(cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      }
+      // バージョン情報 (v>=7)
+      if (ver >= 7) {
+        let rem = ver;
+        for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+        const bits = (ver << 12) | rem;
+        for (let i = 0; i < 18; i++) {
+          const b = ((bits >>> i) & 1) === 1;
+          const a = size - 11 + i % 3, c = Math.floor(i / 3);
+          setFn(a, c, b); setFn(c, a, b);
+        }
+      }
+      // フォーマット情報領域を予約（マスク0で仮置き）
+      qrDrawFormat(modules, isFn, ecl, 0, size);
+
+      // データ配置（ジグザグ）
+      let i = 0;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let vert = 0; vert < size; vert++) {
+          for (let j = 0; j < 2; j++) {
+            const x = right - j;
+            const upward = ((right + 1) & 2) === 0;
+            const y = upward ? size - 1 - vert : vert;
+            if (!isFn[y][x] && i < allCW.length * 8) {
+              modules[y][x] = ((allCW[i >>> 3] >>> (7 - (i & 7))) & 1) === 1;
+              i++;
+            }
+          }
+        }
+      }
+
+      // マスク選定（ペナルティ最小）
+      let bestMask = 0, bestPenalty = Infinity;
+      if (typeof forceMask === "number") {
+        bestMask = forceMask;
+      } else {
+        for (let m = 0; m < 8; m++) {
+          qrApplyMask(modules, isFn, m);
+          qrDrawFormat(modules, isFn, ecl, m, size);
+          const p = qrPenalty(modules, size);
+          if (p < bestPenalty) { bestPenalty = p; bestMask = m; }
+          qrApplyMask(modules, isFn, m); // 元に戻す
+        }
+      }
+      qrApplyMask(modules, isFn, bestMask);
+      qrDrawFormat(modules, isFn, ecl, bestMask, size);
+
+      return modules;
+    }
+
+    /**
+     * QRコードを生成し、2次元のboolean配列(matrix[y][x])を返す。長すぎる場合はnull。
+     */
+    function qrEncode(text, forceMask) {
+      const data = qrUtf8(text);
+      let ecl = QR_ECC.M, version = 0;
+      for (let v = 1; v <= 40; v++) {
+        const cap = qrDataCodewords(v, ecl.ord) * 8;
+        const used = 4 + qrCharCountBits(v) + data.length * 8;
+        if (used <= cap) { version = v; break; }
+      }
+      if (version === 0) return null; // 大きすぎて入らない
+      // 同じバージョンで収まる範囲でECCレベルを引き上げる
+      for (const nm of ["M", "Q", "H"]) {
+        const e = QR_ECC[nm];
+        const cap = qrDataCodewords(version, e.ord) * 8;
+        const used = 4 + qrCharCountBits(version) + data.length * 8;
+        if (used <= cap) ecl = e;
+      }
+
+      const bits = [];
+      const append = (val, len) => { for (let b = len - 1; b >= 0; b--) bits.push((val >>> b) & 1); };
+      append(0b0100, 4);                            // バイトモード指示子
+      append(data.length, qrCharCountBits(version)); // 文字数
+      for (const b of data) append(b, 8);
+
+      const capacityBits = qrDataCodewords(version, ecl.ord) * 8;
+      append(0, Math.min(4, capacityBits - bits.length)); // 終端子
+      while (bits.length % 8 !== 0) bits.push(0);          // バイト境界まで0埋め
+      for (let pad = 0xEC; bits.length < capacityBits; pad ^= 0xEC ^ 0x11) append(pad, 8);
+
+      const dataCW = [];
+      for (let p = 0; p < bits.length; p += 8) {
+        let b = 0;
+        for (let q = 0; q < 8; q++) b = (b << 1) | bits[p + q];
+        dataCW.push(b);
+      }
+
+      const allCW = qrAddEcc(dataCW, version, ecl.ord);
+      return qrBuildMatrix(allCW, version, ecl, forceMask);
+    }
+
+    
+  </script>
+
+  <!-- ════════ デコーダコア（BarcodeTool.html から抽出。textContent を Worker にも流し込む） ════════ -->
+  <script id="dec-core-src">
+// ===== DECODER CORE START =====
+    /**
+     * バーコード / QRコード デコーダ・コア
+     *  - 外部ライブラリ非依存。ブラウザ・Node双方で動作する純粋関数群。
+     *  - 入力: RGBA画素配列 (ImageData互換)  出力: 解析結果 + デバッグ情報
+     */
+    (function (global) {
+      "use strict";
+
+      // ══════════════════════════════════════════════════════════
+      //  画像の前処理（グレースケール化・二値化）
+      // ══════════════════════════════════════════════════════════
+
+      /** RGBA配列をグレースケール(0-255)へ。透明部分は白とみなす */
+      function toGray(rgba, w, h) {
+        const gray = new Uint8Array(w * h);
+        for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
+          const a = rgba[p + 3];
+          let r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
+          if (a < 255) {
+            const t = a / 255;
+            r = r * t + 255 * (1 - t);
+            g = g * t + 255 * (1 - t);
+            b = b * t + 255 * (1 - t);
+          }
+          gray[i] = (r * 306 + g * 601 + b * 117) >> 10;
+        }
+        return gray;
+      }
+
+      /** 大津の二値化（画像全体で1つのしきい値） */
+      function otsuThreshold(gray) {
+        const hist = new Array(256).fill(0);
+        for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+        const total = gray.length;
+        let sum = 0;
+        for (let t = 0; t < 256; t++) sum += t * hist[t];
+        let sumB = 0, wB = 0, best = 0, thr = 128;
+        for (let t = 0; t < 256; t++) {
+          wB += hist[t];
+          if (wB === 0) continue;
+          const wF = total - wB;
+          if (wF === 0) break;
+          sumB += t * hist[t];
+          const mB = sumB / wB, mF = (sum - sumB) / wF;
+          const between = wB * wF * (mB - mF) * (mB - mF);
+          if (between > best) { best = between; thr = t; }
+        }
+        return thr;
+      }
+
+      function binarizeGlobal(gray, w, h, thrOverride) {
+        const thr = (typeof thrOverride === "number") ? thrOverride : otsuThreshold(gray);
+        const bits = new Uint8Array(w * h);
+        for (let i = 0; i < bits.length; i++) bits[i] = gray[i] <= thr ? 1 : 0;
+        return bits;
+      }
+
+      /** ZXing の HybridBinarizer 相当（8x8ブロックごとの局所しきい値） */
+      function binarizeHybrid(gray, w, h) {
+        const BS = 8, MIN_DIM = 40, MIN_DYNAMIC_RANGE = 24;
+        if (w < MIN_DIM || h < MIN_DIM) return binarizeGlobal(gray, w, h);
+
+        const subW = Math.max(1, ((w + BS - 1) >> 3));
+        const subH = Math.max(1, ((h + BS - 1) >> 3));
+        const black = new Int32Array(subW * subH);
+
+        for (let by = 0; by < subH; by++) {
+          let yoffset = by << 3;
+          if (yoffset + BS > h) yoffset = h - BS;
+          for (let bx = 0; bx < subW; bx++) {
+            let xoffset = bx << 3;
+            if (xoffset + BS > w) xoffset = w - BS;
+            let sum = 0, min = 255, max = 0;
+            for (let yy = 0; yy < BS; yy++) {
+              const base = (yoffset + yy) * w + xoffset;
+              for (let xx = 0; xx < BS; xx++) {
+                const v = gray[base + xx];
+                sum += v;
+                if (v < min) min = v;
+                if (v > max) max = v;
+              }
+            }
+            let average;
+            if (max - min > MIN_DYNAMIC_RANGE) {
+              average = sum >> 6;
+            } else {
+              average = min >> 1;
+              if (by > 0 && bx > 0) {
+                const avgNeighbor = (black[(by - 1) * subW + bx] +
+                  2 * black[by * subW + bx - 1] +
+                  black[(by - 1) * subW + bx - 1]) >> 2;
+                if (min < avgNeighbor) average = avgNeighbor;
+              }
+            }
+            black[by * subW + bx] = average;
+          }
+        }
+
+        const bits = new Uint8Array(w * h);
+        for (let by = 0; by < subH; by++) {
+          let yoffset = by << 3;
+          if (yoffset + BS > h) yoffset = h - BS;
+          const top = clamp(by, 2, subH - 3);
+          for (let bx = 0; bx < subW; bx++) {
+            let xoffset = bx << 3;
+            if (xoffset + BS > w) xoffset = w - BS;
+            const left = clamp(bx, 2, subW - 3);
+            let sum = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+              const row = (top + dy) * subW;
+              for (let dx = -2; dx <= 2; dx++) sum += black[row + left + dx];
+            }
+            const average = sum / 25;
+            for (let yy = 0; yy < BS; yy++) {
+              const base = (yoffset + yy) * w;
+              for (let xx = 0; xx < BS; xx++) {
+                bits[base + xoffset + xx] = gray[base + xoffset + xx] <= average ? 1 : 0;
+              }
+            }
+          }
+        }
+        return bits;
+      }
+
+      function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : (hi < lo ? lo : v)); }
+
+      // ══════════════════════════════════════════════════════════
+      //  ガロア体 GF(256) と リード・ソロモン誤り訂正
+      // ══════════════════════════════════════════════════════════
+
+      const GF_EXP = new Uint8Array(512);
+      const GF_LOG = new Uint8Array(256);
+      (function initGF() {
+        let x = 1;
+        for (let i = 0; i < 255; i++) {
+          GF_EXP[i] = x;
+          GF_LOG[x] = i;
+          x <<= 1;
+          if (x & 0x100) x ^= 0x11D;
+        }
+        for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
+      })();
+
+      function gfMul(a, b) { return (a === 0 || b === 0) ? 0 : GF_EXP[GF_LOG[a] + GF_LOG[b]]; }
+      function gfDiv(a, b) {
+        if (b === 0) throw new Error("division by zero");
+        if (a === 0) return 0;
+        return GF_EXP[(GF_LOG[a] + 255 - GF_LOG[b]) % 255];
+      }
+      function gfInv(a) { return GF_EXP[255 - GF_LOG[a]]; }
+      function gfPolyScale(p, s) { return p.map(c => gfMul(c, s)); }
+      function gfPolyAdd(p, q) {
+        const r = new Array(Math.max(p.length, q.length)).fill(0);
+        for (let i = 0; i < p.length; i++) r[i + r.length - p.length] ^= p[i];
+        for (let i = 0; i < q.length; i++) r[i + r.length - q.length] ^= q[i];
+        return r;
+      }
+      function gfPolyMul(p, q) {
+        const r = new Array(p.length + q.length - 1).fill(0);
+        for (let j = 0; j < q.length; j++) {
+          if (q[j] === 0) continue;
+          for (let i = 0; i < p.length; i++) r[i + j] ^= gfMul(p[i], q[j]);
+        }
+        return r;
+      }
+      function gfPolyEval(p, x) {
+        let y = p[0];
+        for (let i = 1; i < p.length; i++) y = gfMul(y, x) ^ p[i];
+        return y;
+      }
+
+      /**
+       * RS復号（生成多項式の根が α^0 から始まる QR 仕様）。
+       * msg: データ+ECCのコードワード列。nsym: ECC語数。
+       * 戻り値 { data, errors } / 訂正不能なら null
+       */
+      function rsDecode(msg, nsym) {
+        const work = msg.slice();
+        // 1) シンドローム
+        const synd = new Array(nsym);
+        let hasError = false;
+        for (let i = 0; i < nsym; i++) {
+          const s = gfPolyEval(work, GF_EXP[i]);
+          synd[i] = s;
+          if (s !== 0) hasError = true;
+        }
+        if (!hasError) return { data: work.slice(0, work.length - nsym), errors: 0 };
+
+        // 2) 誤り位置多項式（Berlekamp-Massey）
+        let errLoc = [1], oldLoc = [1];
+        for (let i = 0; i < nsym; i++) {
+          let delta = synd[i];
+          for (let j = 1; j < errLoc.length; j++) {
+            delta ^= gfMul(errLoc[errLoc.length - 1 - j], synd[i - j]);
+          }
+          oldLoc = oldLoc.concat([0]);
+          if (delta !== 0) {
+            if (oldLoc.length > errLoc.length) {
+              const newLoc = gfPolyScale(oldLoc, delta);
+              oldLoc = gfPolyScale(errLoc, gfInv(delta));
+              errLoc = newLoc;
+            } else {
+              errLoc = gfPolyAdd(errLoc, gfPolyScale(oldLoc, delta));
+              continue;
+            }
+            errLoc = gfPolyAdd(errLoc, gfPolyScale(oldLoc, delta));
+          }
+        }
+        while (errLoc.length && errLoc[0] === 0) errLoc.shift();
+        const numErrors = errLoc.length - 1;
+        if (numErrors * 2 > nsym || numErrors === 0) return null;
+
+        // 3) 誤り位置（Chien探索）
+        const errPos = [];
+        for (let i = 0; i < work.length; i++) {
+          if (gfPolyEval(errLoc, GF_EXP[(255 - i) % 255]) === 0) {
+            errPos.push(work.length - 1 - i);
+          }
+        }
+        if (errPos.length !== numErrors) return null;
+
+        // 4) 誤り評価多項式 Ω(x) = S(x)Λ(x) mod x^nsym
+        const syndPoly = synd.slice().reverse(); // 次数の高い順に並べ替え
+        let omega = gfPolyMul(syndPoly, errLoc);
+        omega = omega.slice(omega.length - nsym);
+
+        // 5) Forneyアルゴリズムで誤り値を算出
+        for (const pos of errPos) {
+          const i = work.length - 1 - pos;          // x^i の位置
+          const Xi = GF_EXP[i % 255];               // 誤り位置 X = α^i
+          const XiInv = gfInv(Xi);
+          // Λ'(X^-1)：GF(2)では奇数次の項のみ残る
+          let derivative = 0;
+          const deg = errLoc.length - 1;
+          for (let k = 1; k <= deg; k += 2) {
+            // errLoc[errLoc.length-1-k] が x^k の係数
+            derivative ^= gfMul(errLoc[errLoc.length - 1 - k], GF_EXP[(GF_LOG[XiInv] * (k - 1)) % 255]);
+          }
+          if (derivative === 0) return null;
+          const omegaVal = gfPolyEval(omega, XiInv);
+          const magnitude = gfMul(Xi, gfDiv(omegaVal, derivative));
+          work[pos] ^= magnitude;
+        }
+
+        // 6) 検算
+        for (let i = 0; i < nsym; i++) {
+          if (gfPolyEval(work, GF_EXP[i]) !== 0) return null;
+        }
+        return { data: work.slice(0, work.length - nsym), errors: errPos.length };
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  QRコード：仕様テーブル
+      // ══════════════════════════════════════════════════════════
+
+      const QR_ECC_CW = [
+        [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+        [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28],
+        [-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+        [-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]
+      ];
+      const QR_NUM_BLOCKS = [
+        [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
+        [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49],
+        [-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68],
+        [-1, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81]
+      ];
+      // フォーマット情報の下位2bit(fb)から誤り訂正レベル名へ
+      const ECL_NAME = { 1: "L", 0: "M", 3: "Q", 2: "H" };
+      const ECL_ORD = { 1: 0, 0: 1, 3: 2, 2: 3 };
+
+      function qrRawDataModules(ver) {
+        let result = (16 * ver + 128) * ver + 64;
+        if (ver >= 2) {
+          const n = Math.floor(ver / 7) + 2;
+          result -= (25 * n - 10) * n - 55;
+          if (ver >= 7) result -= 36;
+        }
+        return result;
+      }
+      function qrAlignPositions(ver) {
+        if (ver === 1) return [];
+        const size = ver * 4 + 17;
+        const num = Math.floor(ver / 7) + 2;
+        const step = (ver === 32) ? 26 : Math.ceil((size - 13) / (num * 2 - 2)) * 2;
+        const result = [6];
+        for (let pos = size - 7; result.length < num; pos -= step) result.splice(1, 0, pos);
+        return result;
+      }
+
+      /** 機能パターン（データを持たないモジュール）の位置マップを作る */
+      function qrFunctionMap(ver) {
+        const size = ver * 4 + 17;
+        const isFn = [];
+        for (let y = 0; y < size; y++) isFn.push(new Array(size).fill(false));
+        const mark = (x, y) => { if (x >= 0 && x < size && y >= 0 && y < size) isFn[y][x] = true; };
+
+        for (let i = 0; i < size; i++) { mark(6, i); mark(i, 6); }             // タイミング
+        const finder = (cx, cy) => {
+          for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) mark(cx + dx, cy + dy);
+        };
+        finder(3, 3); finder(size - 4, 3); finder(3, size - 4);                // ファインダ+分離帯
+        const aligns = qrAlignPositions(ver);
+        const num = aligns.length;
+        for (let i = 0; i < num; i++) for (let j = 0; j < num; j++) {
+          if ((i === 0 && j === 0) || (i === 0 && j === num - 1) || (i === num - 1 && j === 0)) continue;
+          for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) mark(aligns[i] + dx, aligns[j] + dy);
+        }
+        if (ver >= 7) {                                                        // 型番情報
+          for (let i = 0; i < 18; i++) {
+            const a = size - 11 + i % 3, c = Math.floor(i / 3);
+            mark(a, c); mark(c, a);
+          }
+        }
+        // 形式情報
+        for (let i = 0; i <= 5; i++) mark(8, i);
+        mark(8, 7); mark(8, 8); mark(7, 8);
+        for (let i = 9; i < 15; i++) mark(14 - i, 8);
+        for (let i = 0; i < 8; i++) mark(size - 1 - i, 8);
+        for (let i = 8; i < 15; i++) mark(8, size - 15 + i);
+        mark(8, size - 8);                                                     // 常に黒のモジュール
+        return isFn;
+      }
+
+      function qrMaskBit(mask, x, y) {
+        switch (mask) {
+          case 0: return (x + y) % 2 === 0;
+          case 1: return y % 2 === 0;
+          case 2: return x % 3 === 0;
+          case 3: return (x + y) % 3 === 0;
+          case 4: return (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0;
+          case 5: return (x * y) % 2 + (x * y) % 3 === 0;
+          case 6: return ((x * y) % 2 + (x * y) % 3) % 2 === 0;
+          case 7: return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
+        }
+        return false;
+      }
+
+      /** 形式情報15bitをBCH符号として最も近い正解へ訂正する */
+      function qrDecodeFormat(raw) {
+        let best = null, bestDist = 99;
+        for (let d = 0; d < 32; d++) {
+          let rem = d;
+          for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+          const bits = ((d << 10) | rem) ^ 0x5412;
+          const dist = popcount(bits ^ raw);
+          if (dist < bestDist) { bestDist = dist; best = d; }
+        }
+        if (bestDist > 3) return null;
+        return { eclBits: best >> 3, mask: best & 7, distance: bestDist };
+      }
+      function popcount(v) {
+        let c = 0;
+        while (v) { c += v & 1; v >>>= 1; }
+        return c;
+      }
+
+      /** 型番情報18bit（型番7以上）をBCH訂正して型番を返す */
+      function qrDecodeVersionInfo(raw) {
+        let best = null, bestDist = 99;
+        for (let v = 7; v <= 40; v++) {
+          let rem = v;
+          for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+          const bits = (v << 12) | rem;
+          const dist = popcount(bits ^ raw);
+          if (dist < bestDist) { bestDist = dist; best = v; }
+        }
+        return bestDist <= 3 ? best : null;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  QRコード：モジュール行列 → 文字列
+      // ══════════════════════════════════════════════════════════
+
+      const QR_ALNUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+
+      function decodeQRMatrix(matrix) {
+        const size = matrix.length;
+        if (size < 21 || (size - 17) % 4 !== 0) return { ok: false, error: "行列のサイズが不正です (" + size + ")" };
+        const version = (size - 17) / 4;
+        if (version > 40) return { ok: false, error: "型番が範囲外です" };
+
+        // ── 形式情報（2箇所を読み、訂正できた方を採用）
+        const g = (x, y) => matrix[y][x] ? 1 : 0;
+        let raw1 = 0, raw2 = 0;
+        const put1 = [];
+        for (let i = 0; i <= 5; i++) put1.push([8, i]);
+        put1.push([8, 7], [8, 8], [7, 8]);
+        for (let i = 9; i < 15; i++) put1.push([14 - i, 8]);
+        put1.forEach(([x, y], i) => { raw1 |= g(x, y) << i; });
+        const put2 = [];
+        for (let i = 0; i < 8; i++) put2.push([size - 1 - i, 8]);
+        for (let i = 8; i < 15; i++) put2.push([8, size - 15 + i]);
+        put2.forEach(([x, y], i) => { raw2 |= g(x, y) << i; });
+
+        const f1 = qrDecodeFormat(raw1), f2 = qrDecodeFormat(raw2);
+        let fmt = f1;
+        if (!fmt || (f2 && f2.distance < f1.distance)) fmt = f2;
+        if (!fmt) return { ok: false, error: "形式情報を読み取れません" };
+
+        const eclOrd = ECL_ORD[fmt.eclBits];
+        const eclName = ECL_NAME[fmt.eclBits];
+        const mask = fmt.mask;
+
+        // ── 型番情報（型番7以上のときに整合を確認）
+        let versionInfo = null;
+        if (version >= 7) {
+          let vraw = 0;
+          for (let i = 0; i < 18; i++) {
+            const a = size - 11 + i % 3, c = Math.floor(i / 3);
+            vraw |= g(a, c) << i;
+          }
+          versionInfo = qrDecodeVersionInfo(vraw);
+        }
+
+        // ── マスク解除しつつジグザグ走査でコードワードを復元
+        const isFn = qrFunctionMap(version);
+        const rawCW = Math.floor(qrRawDataModules(version) / 8);
+        const allCW = [];
+        let cur = 0, nbits = 0;
+        for (let right = size - 1; right >= 1; right -= 2) {
+          if (right === 6) right = 5;
+          for (let vert = 0; vert < size; vert++) {
+            for (let j = 0; j < 2; j++) {
+              const x = right - j;
+              const upward = ((right + 1) & 2) === 0;
+              const y = upward ? size - 1 - vert : vert;
+              if (isFn[y][x] || allCW.length >= rawCW) continue;
+              let bit = matrix[y][x] ? 1 : 0;
+              if (qrMaskBit(mask, x, y)) bit ^= 1;
+              cur = (cur << 1) | bit;
+              if (++nbits === 8) { allCW.push(cur); cur = 0; nbits = 0; }
+            }
+          }
+        }
+
+        // ── ブロックのデインターリーブ
+        const numBlocks = QR_NUM_BLOCKS[eclOrd][version];
+        const blockEccLen = QR_ECC_CW[eclOrd][version];
+        const numShort = numBlocks - rawCW % numBlocks;
+        const shortLen = Math.floor(rawCW / numBlocks);
+        const blocks = [];
+        for (let j = 0; j < numBlocks; j++) blocks.push([]);
+        let p = 0;
+        for (let i = 0; i < shortLen + 1; i++) {
+          for (let j = 0; j < numBlocks; j++) {
+            if (i === shortLen - blockEccLen && j < numShort) continue; // 短ブロックの詰め物位置
+            if (p < allCW.length) blocks[j].push(allCW[p++]);
+          }
+        }
+
+        // ── 各ブロックをRS訂正
+        const dataCW = [];
+        let totalErrors = 0;
+        const blockInfo = [];
+        for (let j = 0; j < numBlocks; j++) {
+          const res = rsDecode(blocks[j], blockEccLen);
+          if (!res) return { ok: false, error: "誤り訂正に失敗しました (ブロック " + (j + 1) + "/" + numBlocks + ")", version, eclName, mask };
+          totalErrors += res.errors;
+          blockInfo.push({ length: blocks[j].length, dataLength: res.data.length, errors: res.errors });
+          for (const b of res.data) dataCW.push(b);
+        }
+
+        // ── ビットストリーム解釈
+        const parsed = decodeQRBitStream(dataCW, version);
+        if (!parsed.ok) return { ok: false, error: parsed.error, version, eclName, mask };
+
+        return {
+          ok: true,
+          text: parsed.text,
+          bytes: parsed.bytes,
+          segments: parsed.segments,
+          charset: parsed.charset,
+          version, eclName, mask,
+          size,
+          totalCodewords: rawCW,
+          dataCodewords: dataCW,
+          eccPerBlock: blockEccLen,
+          numBlocks,
+          errorsCorrected: totalErrors,
+          blocks: blockInfo,
+          versionInfoMatched: (version < 7) ? null : (versionInfo === version)
+        };
+      }
+
+      function bitReaderOf(codewords) {
+        let pos = 0;
+        const total = codewords.length * 8;
+        return {
+          read(n) {
+            let v = 0;
+            for (let i = 0; i < n; i++) {
+              if (pos >= total) throw new Error("ビット列が不足しています");
+              const b = (codewords[pos >> 3] >> (7 - (pos & 7))) & 1;
+              v = (v << 1) | b;
+              pos++;
+            }
+            return v;
+          },
+          remaining() { return total - pos; },
+          position() { return pos; }
+        };
+      }
+
+      function charCountBits(mode, version) {
+        const g = version <= 9 ? 0 : (version <= 26 ? 1 : 2);
+        switch (mode) {
+          case 1: return [10, 12, 14][g];
+          case 2: return [9, 11, 13][g];
+          case 4: return [8, 16, 16][g];
+          case 8: return [8, 10, 12][g];
+        }
+        return 0;
+      }
+
+      function decodeQRBitStream(dataCW, version) {
+        const br = bitReaderOf(dataCW);
+        const segments = [];
+        const allBytes = [];
+        let text = "";
+        let eci = null;
+        let charset = null;
+        try {
+          while (br.remaining() >= 4) {
+            const mode = br.read(4);
+            if (mode === 0) { segments.push({ mode: "終端子", chars: 0, text: "" }); break; }
+            if (mode === 7) {                                     // ECI
+              const b1 = br.read(8);
+              let val;
+              if ((b1 & 0x80) === 0) val = b1;
+              else if ((b1 & 0xC0) === 0x80) val = ((b1 & 0x3F) << 8) | br.read(8);
+              else val = ((b1 & 0x1F) << 16) | br.read(16);
+              eci = val;
+              segments.push({ mode: "ECI", chars: 0, text: "指定 " + val });
+              continue;
+            }
+            if (mode === 5) { segments.push({ mode: "FNC1(先頭)", chars: 0, text: "" }); continue; }
+            if (mode === 9) { const v = br.read(8); segments.push({ mode: "FNC1(2番目)", chars: 0, text: String(v) }); continue; }
+            if (mode === 3) {                                     // 分割QR
+              const idx = br.read(4), tot = br.read(4), par = br.read(8);
+              segments.push({ mode: "分割QR", chars: 0, text: (idx + 1) + "/" + (tot + 1) + " parity=" + par });
+              continue;
+            }
+            const ccBits = charCountBits(mode, version);
+            if (ccBits === 0) return { ok: false, error: "未対応のモード指示子: " + mode };
+            const count = br.read(ccBits);
+            let seg = "";
+            if (mode === 1) {                                     // 数字
+              let i = 0;
+              for (; i + 3 <= count; i += 3) seg += String(br.read(10)).padStart(3, "0");
+              if (count - i === 2) seg += String(br.read(7)).padStart(2, "0");
+              else if (count - i === 1) seg += String(br.read(4));
+              for (const ch of seg) allBytes.push(ch.charCodeAt(0));
+              segments.push({ mode: "数字", chars: count, text: seg });
+            } else if (mode === 2) {                              // 英数字
+              let i = 0;
+              for (; i + 2 <= count; i += 2) {
+                const v = br.read(11);
+                seg += QR_ALNUM[Math.floor(v / 45)] + QR_ALNUM[v % 45];
+              }
+              if (count - i === 1) seg += QR_ALNUM[br.read(6)];
+              for (const ch of seg) allBytes.push(ch.charCodeAt(0));
+              segments.push({ mode: "英数字", chars: count, text: seg });
+            } else if (mode === 4) {                              // 8bitバイト
+              const bytes = [];
+              for (let i = 0; i < count; i++) { const b = br.read(8); bytes.push(b); allBytes.push(b); }
+              const dr = decodeBytes(bytes, eci);
+              seg = dr.text;
+              charset = dr.charset;
+              segments.push({ mode: "8bitバイト", chars: count, text: seg, charset: dr.charset });
+            } else if (mode === 8) {                              // 漢字 (Shift_JIS)
+              const bytes = [];
+              for (let i = 0; i < count; i++) {
+                const v = br.read(13);
+                let assembled = (Math.floor(v / 0xC0) << 8) | (v % 0xC0);
+                assembled += (assembled < 0x1F00) ? 0x8140 : 0xC140;
+                bytes.push((assembled >> 8) & 0xFF, assembled & 0xFF);
+                allBytes.push((assembled >> 8) & 0xFF, assembled & 0xFF);
+              }
+              seg = decodeWith(bytes, "shift_jis");
+              charset = "Shift_JIS（漢字モード）";
+              segments.push({ mode: "漢字", chars: count, text: seg, charset });
+            }
+            text += seg;
+          }
+        } catch (e) {
+          if (text.length === 0) return { ok: false, error: e.message };
+          // 途中で尽きた場合もそこまでの内容を返す
+          segments.push({ mode: "警告", chars: 0, text: e.message });
+        }
+        return { ok: true, text, bytes: allBytes, segments, charset };
+      }
+
+      function decodeWith(bytes, enc, strict) {
+        try {
+          if (typeof TextDecoder !== "undefined") {
+            return new TextDecoder(enc, { fatal: !!strict }).decode(new Uint8Array(bytes));
+          }
+        } catch (e) {
+          if (strict) return null;   // 厳密判定では「その文字コードではない」
+        }
+        // TextDecoder が使えない環境では ISO-8859-1 相当で読む
+        return bytes.map(b => String.fromCharCode(b)).join("");
+      }
+
+      // ECI番号 → 文字コード名
+      const ECI_CHARSET = {
+        0: "iso-8859-1", 1: "iso-8859-1", 2: "iso-8859-1", 3: "iso-8859-1",
+        4: "iso-8859-2", 5: "iso-8859-3", 6: "iso-8859-4", 7: "iso-8859-5",
+        8: "iso-8859-6", 9: "iso-8859-7", 10: "iso-8859-8", 11: "iso-8859-9",
+        13: "iso-8859-13", 15: "iso-8859-15", 16: "iso-8859-16",
+        17: "windows-1251", 20: "shift_jis", 21: "windows-1250", 22: "windows-1251",
+        23: "windows-1252", 24: "windows-1256", 25: "utf-16be", 26: "utf-8",
+        27: "ascii", 28: "big5", 29: "gb18030", 30: "euc-kr", 170: "ascii"
+      };
+
+      /**
+       * バイト列を文字列へ。ECI指定があればそれに従い、無ければ
+       * UTF-8 → Shift_JIS（厳密） → ISO-8859-1 の順に判定する。
+       * （ECI無しのQRの既定は ISO-8859-1 だが、実際には
+       *   UTF-8 や Shift_JIS をそのまま入れる生成器が多いため）
+       * 戻り値 { text, charset }
+       */
+      function decodeBytes(bytes, eci) {
+        if (eci !== null && eci !== undefined) {
+          const enc = ECI_CHARSET[eci] || "utf-8";
+          return { text: decodeWith(bytes, enc), charset: enc.toUpperCase() + "（ECI " + eci + " 指定）" };
+        }
+        let ascii = true;
+        for (const b of bytes) if (b >= 0x80) { ascii = false; break; }
+        if (ascii) return { text: decodeWith(bytes, "utf-8"), charset: "ASCII" };
+        if (isValidUTF8(bytes)) return { text: decodeWith(bytes, "utf-8"), charset: "UTF-8（自動判定）" };
+        const sjis = decodeWith(bytes, "shift_jis", true);
+        if (sjis !== null && sjis.indexOf(String.fromCharCode(0xFFFD)) < 0) {
+          return { text: sjis, charset: "Shift_JIS（自動判定）" };
+        }
+        return { text: decodeWith(bytes, "iso-8859-1"), charset: "ISO-8859-1（既定）" };
+      }
+
+      function isValidUTF8(bytes) {
+        let i = 0, sawMulti = false;
+        while (i < bytes.length) {
+          const b = bytes[i];
+          let n;
+          if (b < 0x80) n = 0;
+          else if ((b & 0xE0) === 0xC0) n = 1;
+          else if ((b & 0xF0) === 0xE0) n = 2;
+          else if ((b & 0xF8) === 0xF0) n = 3;
+          else return false;
+          if (n > 0) sawMulti = true;
+          for (let k = 1; k <= n; k++) {
+            if (i + k >= bytes.length || (bytes[i + k] & 0xC0) !== 0x80) return false;
+          }
+          i += n + 1;
+        }
+        return true;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  QRコード：画像からの検出（ファインダパターン→射影変換→標本化）
+      // ══════════════════════════════════════════════════════════
+
+      function makeMatrixAccessor(bits, w, h) {
+        return (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? 0 : bits[y * w + x];
+      }
+
+      function foundPatternCross(sc) {
+        let total = 0;
+        for (let i = 0; i < 5; i++) {
+          if (sc[i] === 0) return false;
+          total += sc[i];
+        }
+        if (total < 7) return false;
+        const moduleSize = total / 7;
+        const maxVariance = moduleSize / 2;
+        return Math.abs(moduleSize - sc[0]) < maxVariance &&
+          Math.abs(moduleSize - sc[1]) < maxVariance &&
+          Math.abs(3 * moduleSize - sc[2]) < 3 * maxVariance &&
+          Math.abs(moduleSize - sc[3]) < maxVariance &&
+          Math.abs(moduleSize - sc[4]) < maxVariance;
+      }
+
+      function centerFromEnd(sc, end) {
+        return end - sc[4] - sc[3] - sc[2] / 2;
+      }
+
+      function findFinderPatterns(bits, w, h) {
+        const get = makeMatrixAccessor(bits, w, h);
+        const centers = [];
+
+        const crossCheckVertical = (startY, centerX, maxCount, originalTotal) => {
+          const sc = [0, 0, 0, 0, 0];
+          let y = startY;
+          while (y >= 0 && get(centerX, y)) { sc[2]++; y--; }
+          if (y < 0) return NaN;
+          while (y >= 0 && !get(centerX, y) && sc[1] <= maxCount) { sc[1]++; y--; }
+          if (y < 0 || sc[1] > maxCount) return NaN;
+          while (y >= 0 && get(centerX, y) && sc[0] <= maxCount) { sc[0]++; y--; }
+          if (sc[0] > maxCount) return NaN;
+
+          y = startY + 1;
+          while (y < h && get(centerX, y)) { sc[2]++; y++; }
+          if (y === h) return NaN;
+          while (y < h && !get(centerX, y) && sc[3] < maxCount) { sc[3]++; y++; }
+          if (y === h || sc[3] >= maxCount) return NaN;
+          while (y < h && get(centerX, y) && sc[4] < maxCount) { sc[4]++; y++; }
+          if (sc[4] >= maxCount) return NaN;
+
+          const total = sc[0] + sc[1] + sc[2] + sc[3] + sc[4];
+          if (5 * Math.abs(total - originalTotal) >= 2 * originalTotal) return NaN;
+          return foundPatternCross(sc) ? centerFromEnd(sc, y) : NaN;
+        };
+
+        const crossCheckHorizontal = (startX, centerY, maxCount, originalTotal) => {
+          const sc = [0, 0, 0, 0, 0];
+          let x = startX;
+          while (x >= 0 && get(x, centerY)) { sc[2]++; x--; }
+          if (x < 0) return NaN;
+          while (x >= 0 && !get(x, centerY) && sc[1] <= maxCount) { sc[1]++; x--; }
+          if (x < 0 || sc[1] > maxCount) return NaN;
+          while (x >= 0 && get(x, centerY) && sc[0] <= maxCount) { sc[0]++; x--; }
+          if (sc[0] > maxCount) return NaN;
+
+          x = startX + 1;
+          while (x < w && get(x, centerY)) { sc[2]++; x++; }
+          if (x === w) return NaN;
+          while (x < w && !get(x, centerY) && sc[3] < maxCount) { sc[3]++; x++; }
+          if (x === w || sc[3] >= maxCount) return NaN;
+          while (x < w && get(x, centerY) && sc[4] < maxCount) { sc[4]++; x++; }
+          if (sc[4] >= maxCount) return NaN;
+
+          const total = sc[0] + sc[1] + sc[2] + sc[3] + sc[4];
+          if (5 * Math.abs(total - originalTotal) >= originalTotal) return NaN;
+          return foundPatternCross(sc) ? centerFromEnd(sc, x) : NaN;
+        };
+
+        const handlePossibleCenter = (sc, y, endX) => {
+          const total = sc[0] + sc[1] + sc[2] + sc[3] + sc[4];
+          const centerX0 = centerFromEnd(sc, endX);
+          const centerY = crossCheckVertical(y, Math.floor(centerX0), sc[2], total);
+          if (isNaN(centerY)) return false;
+          const centerX = crossCheckHorizontal(Math.floor(centerX0), Math.floor(centerY), sc[2], total);
+          if (isNaN(centerX)) return false;
+          const moduleSize = total / 7;
+          for (const c of centers) {
+            if (Math.abs(centerX - c.x) <= moduleSize && Math.abs(centerY - c.y) <= moduleSize) {
+              const combined = c.count + 1;
+              c.x = (c.count * c.x + centerX) / combined;
+              c.y = (c.count * c.y + centerY) / combined;
+              c.size = (c.count * c.size + moduleSize) / combined;
+              c.count = combined;
+              return true;
+            }
+          }
+          centers.push({ x: centerX, y: centerY, size: moduleSize, count: 1 });
+          return true;
+        };
+
+        const rowStep = Math.max(1, Math.floor(h / 400));
+        const sc = [0, 0, 0, 0, 0];
+        for (let y = rowStep - 1; y < h; y += rowStep) {
+          sc[0] = sc[1] = sc[2] = sc[3] = sc[4] = 0;
+          let currentState = 0;
+          for (let x = 0; x < w; x++) {
+            if (get(x, y)) {                        // 黒
+              if ((currentState & 1) === 1) currentState++;
+              sc[currentState]++;
+            } else {                                // 白
+              if ((currentState & 1) === 0) {
+                if (currentState === 4) {
+                  if (foundPatternCross(sc)) {
+                    handlePossibleCenter(sc, y, x);
+                    sc[0] = sc[1] = sc[2] = sc[3] = sc[4] = 0;
+                    currentState = 0;
+                  } else {
+                    sc[0] = sc[2]; sc[1] = sc[3]; sc[2] = sc[4]; sc[3] = 1; sc[4] = 0;
+                    currentState = 3;
+                  }
+                } else {
+                  currentState++;
+                  sc[currentState]++;
+                }
+              } else {
+                sc[currentState]++;
+              }
+            }
+          }
+          if (currentState === 4 && foundPatternCross(sc)) handlePossibleCenter(sc, y, w);
+        }
+        return centers;
+      }
+
+      /** 検出したファインダ候補から、直角三角形をなす3点の最良の組を選ぶ */
+      function selectFinderTriple(centers) {
+        const cands = centers.filter(c => c.count >= 2);
+        const list = (cands.length >= 3) ? cands : centers;
+        if (list.length < 3) return null;
+        let best = null, bestScore = Infinity;
+        for (let i = 0; i < list.length; i++)
+          for (let j = i + 1; j < list.length; j++)
+            for (let k = j + 1; k < list.length; k++) {
+              const t = [list[i], list[j], list[k]];
+              const avg = (t[0].size + t[1].size + t[2].size) / 3;
+              if (avg <= 0) continue;
+              const sizeDev = (Math.abs(t[0].size - avg) + Math.abs(t[1].size - avg) + Math.abs(t[2].size - avg)) / avg;
+              const ordered = orderFinders(t);
+              if (!ordered) continue;
+              const d1 = dist(ordered.tl, ordered.tr), d2 = dist(ordered.tl, ordered.bl), d3 = dist(ordered.tr, ordered.bl);
+              if (d1 < avg * 10 || d2 < avg * 10) continue;   // 小さすぎる組み合わせは除外
+              const legDev = Math.abs(d1 - d2) / Math.max(d1, d2);
+              const hypoDev = Math.abs(d3 - Math.hypot(d1, d2)) / d3;
+              const score = sizeDev * 2 + legDev + hypoDev * 2;
+              if (score < bestScore) { bestScore = score; best = ordered; }
+            }
+        if (best && bestScore > 1.2) return null;
+        return best;
+      }
+
+      function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+      /** 3点を 左上/右上/左下 に割り当てる */
+      function orderFinders(t) {
+        const d01 = dist(t[0], t[1]), d02 = dist(t[0], t[2]), d12 = dist(t[1], t[2]);
+        let tl, a, b;
+        if (d12 >= d01 && d12 >= d02) { tl = t[0]; a = t[1]; b = t[2]; }
+        else if (d02 >= d01 && d02 >= d12) { tl = t[1]; a = t[0]; b = t[2]; }
+        else { tl = t[2]; a = t[0]; b = t[1]; }
+        const cross = (a.x - tl.x) * (b.y - tl.y) - (a.y - tl.y) * (b.x - tl.x);
+        // 画面座標(y下向き)では 左上→右上→左下 の外積が正になる
+        if (cross > 0) return { tl, tr: a, bl: b };
+        return { tl, tr: b, bl: a };
+      }
+
+      // ── 射影変換（ZXing PerspectiveTransform 相当）
+      function PT(a11, a21, a31, a12, a22, a32, a13, a23, a33) {
+        return { a11, a21, a31, a12, a22, a32, a13, a23, a33 };
+      }
+      function ptTransform(t, x, y) {
+        const denom = t.a13 * x + t.a23 * y + t.a33;
+        return [(t.a11 * x + t.a21 * y + t.a31) / denom, (t.a12 * x + t.a22 * y + t.a32) / denom];
+      }
+      function squareToQuad(x0, y0, x1, y1, x2, y2, x3, y3) {
+        const dx3 = x0 - x1 + x2 - x3, dy3 = y0 - y1 + y2 - y3;
+        if (dx3 === 0 && dy3 === 0) {
+          return PT(x1 - x0, x2 - x1, x0, y1 - y0, y2 - y1, y0, 0, 0, 1);
+        }
+        const dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2;
+        const denominator = dx1 * dy2 - dx2 * dy1;
+        const a13 = (dx3 * dy2 - dx2 * dy3) / denominator;
+        const a23 = (dx1 * dy3 - dx3 * dy1) / denominator;
+        return PT(x1 - x0 + a13 * x1, x3 - x0 + a23 * x3, x0,
+          y1 - y0 + a13 * y1, y3 - y0 + a23 * y3, y0, a13, a23, 1);
+      }
+      function ptAdjoint(t) {
+        return PT(
+          t.a22 * t.a33 - t.a23 * t.a32, t.a23 * t.a31 - t.a21 * t.a33, t.a21 * t.a32 - t.a22 * t.a31,
+          t.a13 * t.a32 - t.a12 * t.a33, t.a11 * t.a33 - t.a13 * t.a31, t.a12 * t.a31 - t.a11 * t.a32,
+          t.a12 * t.a23 - t.a13 * t.a22, t.a13 * t.a21 - t.a11 * t.a23, t.a11 * t.a22 - t.a12 * t.a21);
+      }
+      function ptTimes(t, o) {
+        return PT(
+          t.a11 * o.a11 + t.a21 * o.a12 + t.a31 * o.a13,
+          t.a11 * o.a21 + t.a21 * o.a22 + t.a31 * o.a23,
+          t.a11 * o.a31 + t.a21 * o.a32 + t.a31 * o.a33,
+          t.a12 * o.a11 + t.a22 * o.a12 + t.a32 * o.a13,
+          t.a12 * o.a21 + t.a22 * o.a22 + t.a32 * o.a23,
+          t.a12 * o.a31 + t.a22 * o.a32 + t.a32 * o.a33,
+          t.a13 * o.a11 + t.a23 * o.a12 + t.a33 * o.a13,
+          t.a13 * o.a21 + t.a23 * o.a22 + t.a33 * o.a23,
+          t.a13 * o.a31 + t.a23 * o.a32 + t.a33 * o.a33);
+      }
+      function quadToQuad(s, d) {
+        return ptTimes(squareToQuad.apply(null, d), ptAdjoint(squareToQuad.apply(null, s)));
+      }
+
+      /** 整列パターン（1:1:1）を指定範囲から探す（ZXing AlignmentPatternFinder 相当） */
+      function findAlignmentPattern(bits, w, h, estX, estY, allowance, moduleSize) {
+        const get = makeMatrixAccessor(bits, w, h);
+        const startX = Math.max(0, Math.floor(estX - allowance));
+        const endX = Math.min(w - 1, Math.ceil(estX + allowance));
+        const startY = Math.max(0, Math.floor(estY - allowance));
+        const endY = Math.min(h - 1, Math.ceil(estY + allowance));
+        if (endX - startX < moduleSize * 3 || endY - startY < moduleSize * 3) return null;
+
+        const found = [];
+        const crossOK = (sc) => {
+          const maxVariance = moduleSize / 2;
+          for (let i = 0; i < 3; i++) if (Math.abs(moduleSize - sc[i]) >= maxVariance) return false;
+          return true;
+        };
+        const centerEnd = (sc, end) => (end - sc[2]) - sc[1] / 2;
+
+        const crossCheckVertical = (startYY, centerX, maxCount, originalTotal) => {
+          const sc = [0, 0, 0];
+          let y = startYY;
+          while (y >= startY && get(centerX, y) && sc[1] <= maxCount) { sc[1]++; y--; }
+          if (y < startY || sc[1] > maxCount) return NaN;
+          while (y >= startY && !get(centerX, y) && sc[0] <= maxCount) { sc[0]++; y--; }
+          if (sc[0] > maxCount) return NaN;
+          y = startYY + 1;
+          while (y <= endY && get(centerX, y) && sc[1] <= maxCount) { sc[1]++; y++; }
+          if (y > endY || sc[1] > maxCount) return NaN;
+          while (y <= endY && !get(centerX, y) && sc[2] <= maxCount) { sc[2]++; y++; }
+          if (sc[2] > maxCount) return NaN;
+          const total = sc[0] + sc[1] + sc[2];
+          if (5 * Math.abs(total - originalTotal) >= 2 * originalTotal) return NaN;
+          return crossOK(sc) ? centerEnd(sc, y) : NaN;
+        };
+
+        const tryCenter = (sc, yy, endXX) => {
+          const total = sc[0] + sc[1] + sc[2];
+          const cx = centerEnd(sc, endXX);
+          const cy = crossCheckVertical(yy, Math.round(cx), 2 * sc[1], total);
+          if (isNaN(cy)) return;
+          const size = total / 3;
+          for (const f of found) {
+            if (Math.abs(f.x - cx) <= size && Math.abs(f.y - cy) <= size) {
+              const n = f.count + 1;
+              f.x = (f.x * f.count + cx) / n;
+              f.y = (f.y * f.count + cy) / n;
+              f.size = (f.size * f.count + size) / n;
+              f.count = n;
+              return;
+            }
+          }
+          found.push({ x: cx, y: cy, size, count: 1 });
+        };
+
+        for (let yy = startY; yy <= endY; yy++) {
+          let x = startX;
+          while (x <= endX && !get(x, yy)) x++;   // 先頭の白を読み飛ばす
+          const sc = [0, 0, 0];
+          let currentState = 0;
+          while (x <= endX) {
+            if (get(x, yy)) {                     // 黒
+              if (currentState === 1) {
+                sc[1]++;
+              } else if (currentState === 2) {
+                if (crossOK(sc)) tryCenter(sc, yy, x);
+                sc[0] = sc[2]; sc[1] = 1; sc[2] = 0;
+                currentState = 1;
+              } else {
+                sc[++currentState]++;
+              }
+            } else {                              // 白
+              if (currentState === 1) currentState++;
+              sc[currentState]++;
+            }
+            x++;
+          }
+          if (crossOK(sc)) tryCenter(sc, yy, endX + 1);
+        }
+        if (!found.length) return null;
+        found.sort((a, b) => Math.hypot(a.x - estX, a.y - estY) - Math.hypot(b.x - estX, b.y - estY));
+        return found[0];
+      }
+
+      /** 射影変換に従ってモジュール行列を標本化する */
+      function sampleGrid(bits, w, h, dimension, transform) {
+        const get = makeMatrixAccessor(bits, w, h);
+        const matrix = [];
+        for (let y = 0; y < dimension; y++) {
+          const row = new Array(dimension).fill(false);
+          for (let x = 0; x < dimension; x++) {
+            const [px, py] = ptTransform(transform, x + 0.5, y + 0.5);
+            const ix = Math.round(px), iy = Math.round(py);
+            if (ix < 0 || iy < 0 || ix >= w || iy >= h) return null;
+            row[x] = get(ix, iy) === 1;
+          }
+          matrix.push(row);
+        }
+        return matrix;
+      }
+
+      /** 二値画像から1つのQRコードを検出してデコードする */
+      function detectAndDecodeQR(bits, w, h, excluded) {
+        const centers = findFinderPatterns(bits, w, h).filter(c => {
+          if (!excluded) return true;
+          return !excluded.some(r => c.x >= r.x0 && c.x <= r.x1 && c.y >= r.y0 && c.y <= r.y1);
+        });
+        if (centers.length < 3) return { ok: false, error: "ファインダパターンが3つ見つかりません (検出 " + centers.length + " 個)", centers };
+        const fp = selectFinderTriple(centers);
+        if (!fp) return { ok: false, error: "ファインダパターンの配置が不正です", centers };
+
+        const moduleSize = (fp.tl.size + fp.tr.size + fp.bl.size) / 3;
+        if (moduleSize < 1) return { ok: false, error: "モジュールが小さすぎます", centers };
+
+        const widthMods = Math.round(dist(fp.tl, fp.tr) / moduleSize);
+        const heightMods = Math.round(dist(fp.tl, fp.bl) / moduleSize);
+        let dimension = Math.round((widthMods + heightMods) / 2) + 7;
+        switch (dimension & 3) {
+          case 0: dimension++; break;
+          case 2: dimension--; break;
+          case 3: dimension += 2; break;
+        }
+        if (dimension < 21 || dimension > 177) {
+          return { ok: false, error: "推定サイズが範囲外です (" + dimension + ")", centers };
+        }
+        const version = (dimension - 17) / 4;
+
+        // 整列パターンを使えるなら4点で射影変換
+        let alignment = null;
+        if (version >= 2) {
+          const brX = fp.tr.x - fp.tl.x + fp.bl.x;
+          const brY = fp.tr.y - fp.tl.y + fp.bl.y;
+          const correction = 1 - 3.0 / (dimension - 7);
+          const estX = fp.tl.x + correction * (brX - fp.tl.x);
+          const estY = fp.tl.y + correction * (brY - fp.tl.y);
+          for (let i = 4; i <= 16; i <<= 1) {
+            alignment = findAlignmentPattern(bits, w, h, estX, estY, i * moduleSize, moduleSize);
+            if (alignment) break;
+          }
+        }
+
+        const dimMinusThree = dimension - 3.5;
+        let srcQuad, dstQuad;
+        if (alignment) {
+          srcQuad = [3.5, 3.5, dimMinusThree, 3.5, dimMinusThree - 3.0, dimMinusThree - 3.0, 3.5, dimMinusThree];
+          dstQuad = [fp.tl.x, fp.tl.y, fp.tr.x, fp.tr.y, alignment.x, alignment.y, fp.bl.x, fp.bl.y];
+        } else {
+          const brX = fp.tr.x - fp.tl.x + fp.bl.x;
+          const brY = fp.tr.y - fp.tl.y + fp.bl.y;
+          srcQuad = [3.5, 3.5, dimMinusThree, 3.5, dimMinusThree, dimMinusThree, 3.5, dimMinusThree];
+          dstQuad = [fp.tl.x, fp.tl.y, fp.tr.x, fp.tr.y, brX, brY, fp.bl.x, fp.bl.y];
+        }
+        const transform = quadToQuad(srcQuad, dstQuad);
+        const matrix = sampleGrid(bits, w, h, dimension, transform);
+        if (!matrix) return { ok: false, error: "標本化に失敗しました（コードが画像からはみ出しています）", centers };
+
+        const decoded = decodeQRMatrix(matrix);
+        const corners = [
+          ptTransform(transform, 0, 0),
+          ptTransform(transform, dimension, 0),
+          ptTransform(transform, dimension, dimension),
+          ptTransform(transform, 0, dimension)
+        ];
+        const xs = corners.map(c => c[0]), ys = corners.map(c => c[1]);
+        const bounds = { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys) };
+
+        if (!decoded.ok) return { ok: false, error: decoded.error, matrix, corners, bounds, centers, dimension, moduleSize, alignment: !!alignment };
+        decoded.matrix = matrix;
+        decoded.corners = corners;
+        decoded.bounds = bounds;
+        decoded.moduleSize = moduleSize;
+        decoded.usedAlignment = !!alignment;
+        decoded.finders = fp;
+        return decoded;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  1次元バーコード（Code128 / EAN-13 / EAN-8 / UPC-A）
+      // ══════════════════════════════════════════════════════════
+
+      const CODE128_PATTERNS = [
+        "212222", "222122", "222221", "121223", "121322", "131222", "122213",
+        "122312", "132212", "221213", "221312", "231212", "112232", "122132",
+        "122231", "113222", "123122", "123221", "223211", "221132", "221231",
+        "213212", "223112", "312131", "311222", "321122", "321221", "312212",
+        "322112", "322211", "212123", "212321", "232121", "111323", "131123",
+        "131321", "112313", "132113", "132311", "211313", "231113", "231311",
+        "112133", "112331", "132131", "113123", "113321", "133121", "313121",
+        "211331", "231131", "213113", "213311", "213131", "311123", "311321",
+        "331121", "312113", "312311", "332111", "314111", "221411", "431111",
+        "111224", "111422", "121124", "121421", "141122", "141221", "112214",
+        "112412", "122114", "122411", "142112", "142211", "241211", "221114",
+        "413111", "241112", "134111", "111242", "121142", "121241", "114212",
+        "124112", "124211", "411212", "421112", "421211", "212141", "214121",
+        "412121", "111143", "111341", "131141", "114113", "114311", "411113",
+        "411311", "113141", "114131", "311141", "411131", "211412", "211214",
+        "211232"
+      ].map(s => s.split("").map(Number));
+      const CODE128_STOP = [2, 3, 3, 1, 1, 1, 2];
+
+      const EAN_L = ["0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"];
+      const EAN_G = ["0100111", "0110011", "0011011", "0100001", "0011101", "0111001", "0000101", "0010001", "0001001", "0010111"];
+      const EAN_R = ["1110010", "1100110", "1101100", "1000010", "1011100", "1001110", "1010000", "1000100", "1001000", "1110100"];
+      const EAN_PARITY = ["LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG", "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"];
+      const toWidths = (bitsStr) => {
+        const out = [];
+        let cur = bitsStr[0], n = 0;
+        for (const c of bitsStr) {
+          if (c === cur) n++;
+          else { out.push(n); cur = c; n = 1; }
+        }
+        out.push(n);
+        return out;
+      };
+      const EAN_L_W = EAN_L.map(toWidths), EAN_G_W = EAN_G.map(toWidths), EAN_R_W = EAN_R.map(toWidths);
+
+      /** 幅の並びが理想パターンにどれだけ近いか（小さいほど良い / MAX_AVGを超えたら不一致） */
+      function patternMatchVariance(counters, pattern, maxIndividualVariance) {
+        let total = 0, patternLength = 0;
+        for (let i = 0; i < counters.length; i++) { total += counters[i]; patternLength += pattern[i]; }
+        if (total < patternLength) return Infinity;
+        const unitBarWidth = total / patternLength;
+        const maxVar = unitBarWidth * maxIndividualVariance;
+        let totalVariance = 0;
+        for (let i = 0; i < counters.length; i++) {
+          const scaled = pattern[i] * unitBarWidth;
+          const variance = Math.abs(counters[i] - scaled);
+          if (variance > maxVar) return Infinity;
+          totalVariance += variance;
+        }
+        return totalVariance / total;
+      }
+
+      /** 1行の二値画素列 → ランレングス列 [{dark, len, start}] */
+      function rowToRuns(row) {
+        const runs = [];
+        let cur = row[0], start = 0;
+        for (let i = 1; i < row.length; i++) {
+          if (row[i] !== cur) { runs.push({ dark: cur === 1, len: i - start, start }); cur = row[i]; start = i; }
+        }
+        runs.push({ dark: cur === 1, len: row.length - start, start });
+        return runs;
+      }
+
+      function decodeCode128Runs(runs) {
+        const lens = runs.map(r => r.len);
+        for (let s = 0; s + 6 < runs.length; s++) {
+          if (!runs[s].dark) continue;
+          const counters = lens.slice(s, s + 6);
+          let startCode = -1, bestVar = 0.25;
+          for (const code of [103, 104, 105]) {
+            const v = patternMatchVariance(counters, CODE128_PATTERNS[code], 0.7);
+            if (v < bestVar) { bestVar = v; startCode = code; }
+          }
+          if (startCode < 0) continue;
+          // クワイエットゾーン（開始バーの手前が十分な白）
+          const unit = counters.reduce((a, b) => a + b, 0) / 11;
+          if (s > 0 && runs[s - 1].len < unit * 3) continue;
+
+          const values = [startCode];
+          let i = s + 6;
+          let stopped = false;
+          while (i + 5 < runs.length) {
+            // 停止パターン（7要素）を優先して判定
+            if (i + 6 < runs.length) {
+              const stopVar = patternMatchVariance(lens.slice(i, i + 7), CODE128_STOP, 0.7);
+              if (stopVar < 0.25) { stopped = true; i += 7; break; }
+            }
+            const cs = lens.slice(i, i + 6);
+            let best = -1, bv = 0.25;
+            for (let code = 0; code < CODE128_PATTERNS.length; code++) {
+              const v = patternMatchVariance(cs, CODE128_PATTERNS[code], 0.7);
+              if (v < bv) { bv = v; best = code; }
+            }
+            if (best < 0) break;
+            values.push(best);
+            i += 6;
+          }
+          if (!stopped || values.length < 3) continue;
+
+          const checksum = values.pop();
+          let sum = values[0];
+          for (let k = 1; k < values.length; k++) sum += values[k] * k;
+          if (sum % 103 !== checksum) continue;
+
+          const text = code128ValuesToText(values);
+          if (text === null) continue;
+          const endRun = runs[Math.min(i - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "code128", label: "Code128", text,
+            detail: {
+              開始コード: "Start " + (startCode === 103 ? "A" : startCode === 104 ? "B" : "C"),
+              シンボル値: values.concat([checksum]).join(" "),
+              チェックサム: checksum + "（照合OK）"
+            },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      const C128_CODEA = 101, C128_CODEB = 100, C128_CODEC = 99, C128_SHIFT = 98, C128_FNC1 = 102, C128_FNC2 = 97, C128_FNC3 = 96;
+
+      function code128ValuesToText(values) {
+        let set = values[0] === 103 ? "A" : (values[0] === 104 ? "B" : "C");
+        let out = "";
+        let shifted = null;
+        for (let k = 1; k < values.length; k++) {
+          const v = values[k];
+          const effective = shifted || set;
+          shifted = null;
+          if (effective === "C") {
+            if (v < 100) { out += String(v).padStart(2, "0"); continue; }
+            if (v === C128_CODEB) { set = "B"; continue; }
+            if (v === C128_CODEA) { set = "A"; continue; }
+            if (v === C128_FNC1) { out += ""; continue; }
+            return null;
+          }
+          if (v < 96) {
+            if (effective === "B") out += String.fromCharCode(v + 32);
+            else out += (v < 64) ? String.fromCharCode(v + 32) : String.fromCharCode(v - 64);
+            continue;
+          }
+          switch (v) {
+            case C128_CODEA: set = "A"; break;
+            case C128_CODEB: set = "B"; break;
+            case C128_CODEC: set = "C"; break;
+            case C128_SHIFT: shifted = (set === "A") ? "B" : "A"; break;
+            case C128_FNC1: out += ""; break;
+            case C128_FNC2: case C128_FNC3: break;
+            default: return null;
+          }
+        }
+        return out;
+      }
+
+      function eanCheckDigit(digits) {
+        const arr = digits.split("").map(Number).reverse();
+        let sum = 0;
+        for (let i = 0; i < arr.length; i++) sum += arr[i] * (i % 2 === 0 ? 3 : 1);
+        return (10 - (sum % 10)) % 10;
+      }
+
+      function decodeEANRuns(runs) {
+        const lens = runs.map(r => r.len);
+        const GUARD = [1, 1, 1];
+        for (let s = 0; s + 2 < runs.length; s++) {
+          if (!runs[s].dark) continue;
+          if (patternMatchVariance(lens.slice(s, s + 3), GUARD, 0.7) > 0.4) continue;
+          const unit = (lens[s] + lens[s + 1] + lens[s + 2]) / 3;
+          if (s > 0 && runs[s - 1].len < unit * 5) continue;   // 前のクワイエットゾーン
+
+          for (const variant of [13, 8]) {
+            const nHalf = variant === 13 ? 6 : 4;
+            const needed = 3 + nHalf * 4 + 5 + nHalf * 4 + 3;
+            if (s + needed > runs.length) continue;
+            let p = s + 3;
+            const left = [], parity = [];
+            let ok = true;
+            for (let d = 0; d < nHalf; d++, p += 4) {
+              const cs = lens.slice(p, p + 4);
+              let best = -1, bv = 0.5, bp = "";
+              for (let n = 0; n < 10; n++) {
+                const vl = patternMatchVariance(cs, EAN_L_W[n], 0.7);
+                if (vl < bv) { bv = vl; best = n; bp = "L"; }
+                const vg = patternMatchVariance(cs, EAN_G_W[n], 0.7);
+                if (vg < bv) { bv = vg; best = n; bp = "G"; }
+              }
+              if (best < 0) { ok = false; break; }
+              left.push(best); parity.push(bp);
+            }
+            if (!ok) continue;
+            if (variant === 8 && parity.some(x => x === "G")) continue;
+            // 中央ガードパターン 01010
+            if (patternMatchVariance(lens.slice(p, p + 5), [1, 1, 1, 1, 1], 0.7) > 0.5) continue;
+            p += 5;
+            const right = [];
+            for (let d = 0; d < nHalf; d++, p += 4) {
+              const cs = lens.slice(p, p + 4);
+              let best = -1, bv = 0.5;
+              for (let n = 0; n < 10; n++) {
+                const v = patternMatchVariance(cs, EAN_R_W[n], 0.7);
+                if (v < bv) { bv = v; best = n; }
+              }
+              if (best < 0) { ok = false; break; }
+              right.push(best);
+            }
+            if (!ok) continue;
+            // 終了ガードパターン 101
+            if (patternMatchVariance(lens.slice(p, p + 3), GUARD, 0.7) > 0.5) continue;
+            p += 3;
+
+            const tailRun = runs[p];
+            if (tailRun && (tailRun.dark || tailRun.len < unit * 5)) continue;  // 後ろのクワイエットゾーン
+
+            // 全体の幅がモジュール数と釣り合っているか
+            const totalModules = variant === 13 ? 95 : 67;
+            let total = 0;
+            for (let k = s; k < p; k++) total += lens[k];
+            if (Math.abs(total - unit * totalModules) > unit * totalModules * 0.2) continue;
+
+            let digits;
+            if (variant === 13) {
+              const first = EAN_PARITY.indexOf(parity.join(""));
+              if (first < 0) continue;
+              digits = String(first) + left.join("") + right.join("");
+            } else {
+              digits = left.join("") + right.join("");
+            }
+            if (eanCheckDigit(digits.slice(0, digits.length - 1)) !== Number(digits[digits.length - 1])) continue;
+
+            const endRun = runs[Math.min(p - 1, runs.length - 1)];
+            const isUPCA = (variant === 13 && digits[0] === "0");
+            return {
+              ok: true,
+              kind: variant === 13 ? "ean13" : "ean8",
+              label: variant === 13 ? (isUPCA ? "EAN-13 / UPC-A" : "EAN-13 / JAN") : "EAN-8",
+              text: digits,
+              detail: {
+                チェックディジット: digits[digits.length - 1] + "（照合OK）",
+                パリティ: variant === 13 ? parity.join("") : "（EAN-8のため無し）",
+                "UPC-Aとしての表記": isUPCA ? digits.slice(1) : null
+              },
+              xStart: runs[s].start, xEnd: endRun.start + endRun.len
+            };
+          }
+        }
+        return null;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  1次元バーコード（追加分）
+      //   Code39 / Code93 / ITF / NW-7(Codabar) / UPC-E
+      //   細太2種の幅で表す方式（Code39・ITF・NW-7）は、太さの比が
+      //   2:1〜3:1と幅があるため、比率に依存しない「細/太の判別」で読む。
+      // ══════════════════════════════════════════════════════════
+
+      /**
+       * 太い要素をビット1として並べたパターンを返す（ZXing の toNarrowWidePattern 相当）。
+       * expectWide を指定するとその本数だけ太い場合のみ受け付ける。
+       */
+      function toNarrowWidePattern(counters, expectWide) {
+        const n = counters.length;
+        let maxNarrow = 0;
+        for (;;) {
+          let minCounter = Infinity;
+          for (const c of counters) if (c < minCounter && c > maxNarrow) minCounter = c;
+          if (minCounter === Infinity) return -1;
+          maxNarrow = minCounter;
+          let wideCount = 0, totalWide = 0, pattern = 0;
+          for (let i = 0; i < n; i++) {
+            if (counters[i] > maxNarrow) {
+              pattern |= 1 << (n - 1 - i);
+              wideCount++;
+              totalWide += counters[i];
+            }
+          }
+          if (wideCount === expectWide) {
+            // 太い要素が細い要素より十分に太いか（比が2:1〜3:1のどちらでも通る判定）
+            let minWide = Infinity;
+            for (let i = 0; i < n; i++) if (counters[i] > maxNarrow && counters[i] < minWide) minWide = counters[i];
+            if (minWide < maxNarrow * 1.4) return -1;
+            return pattern;
+          }
+          if (wideCount < expectWide) return -1;
+        }
+      }
+
+      /** 細太が混在するパターン（NW-7のように太の本数が一定でない）用 */
+      function toNarrowWideByThreshold(counters) {
+        let min = Infinity, max = 0;
+        for (const c of counters) { if (c < min) min = c; if (c > max) max = c; }
+        if (max < min * 1.4) return -1;               // 細太の差が無い＝この符号ではない
+        const threshold = (min + max) / 2;
+        let pattern = 0;
+        for (let i = 0; i < counters.length; i++) {
+          if (counters[i] > threshold) pattern |= 1 << (counters.length - 1 - i);
+        }
+        return pattern;
+      }
+
+      const widthsToPattern = (s) => {                // "nnnwwnwnn" → ビットパターン
+        let p = 0;
+        for (let i = 0; i < s.length; i++) if (s[i] === "w") p |= 1 << (s.length - 1 - i);
+        return p;
+      };
+
+      // ── Code39（細太9要素・3本が太） ──
+      const CODE39_TABLE = {
+        "0": "nnnwwnwnn", "1": "wnnwnnnnw", "2": "nnwwnnnnw", "3": "wnwwnnnnn", "4": "nnnwwnnnw",
+        "5": "wnnwwnnnn", "6": "nnwwwnnnn", "7": "nnnwnnwnw", "8": "wnnwnnwnn", "9": "nnwwnnwnn",
+        "A": "wnnnnwnnw", "B": "nnwnnwnnw", "C": "wnwnnwnnn", "D": "nnnnwwnnw", "E": "wnnnwwnnn",
+        "F": "nnwnwwnnn", "G": "nnnnnwwnw", "H": "wnnnnwwnn", "I": "nnwnnwwnn", "J": "nnnnwwwnn",
+        "K": "wnnnnnnww", "L": "nnwnnnnww", "M": "wnwnnnnwn", "N": "nnnnwnnww", "O": "wnnnwnnwn",
+        "P": "nnwnwnnwn", "Q": "nnnnnnwww", "R": "wnnnnnwwn", "S": "nnwnnnwwn", "T": "nnnnwnwwn",
+        "U": "wwnnnnnnw", "V": "nwwnnnnnw", "W": "wwwnnnnnn", "X": "nwnnwnnnw", "Y": "wwnnwnnnn",
+        "Z": "nwwnwnnnn", "-": "nwnnnnwnw", ".": "wwnnnnwnn", " ": "nwwnnnwnn",
+        "$": "nwnwnwnnn", "/": "nwnwnnnwn", "+": "nwnnnwnwn", "%": "nnnwnwnwn", "*": "nwnnwnwnn"
+      };
+      const CODE39_BY_PATTERN = {};
+      for (const ch of Object.keys(CODE39_TABLE)) CODE39_BY_PATTERN[widthsToPattern(CODE39_TABLE[ch])] = ch;
+      const CODE39_CHECK_ORDER = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+
+      function decodeCode39Runs(runs) {
+        const lens = runs.map(r => r.len);
+        const startPattern = widthsToPattern(CODE39_TABLE["*"]);
+        for (let s = 0; s + 9 <= runs.length; s++) {
+          if (!runs[s].dark) continue;
+          if (toNarrowWidePattern(lens.slice(s, s + 9), 3) !== startPattern) continue;
+          const unit = lens.slice(s, s + 9).reduce((a, b) => a + b, 0) / 13;
+          if (s > 0 && runs[s - 1].len < unit * 3) continue;      // クワイエットゾーン
+
+          let chars = "";
+          let i = s + 10;                                          // 9要素＋文字間ギャップ1
+          let ok = false, endIdx = i;
+          while (i + 9 <= runs.length) {
+            const p = toNarrowWidePattern(lens.slice(i, i + 9), 3);
+            const ch = CODE39_BY_PATTERN[p];
+            if (ch === undefined) break;
+            if (ch === "*") { ok = true; endIdx = i + 9; break; }
+            chars += ch;
+            i += 10;
+            if (chars.length > 128) break;
+          }
+          if (!ok || chars.length === 0) continue;
+
+          // 末尾がチェックディジット（モジュロ43）なら検証して外す
+          let text = chars, checked = "なし";
+          if (chars.length >= 2) {
+            let sum = 0;
+            for (let k = 0; k < chars.length - 1; k++) sum += CODE39_CHECK_ORDER.indexOf(chars[k]);
+            if (CODE39_CHECK_ORDER.indexOf(chars[chars.length - 1]) === sum % 43) {
+              text = chars.slice(0, -1);
+              checked = chars[chars.length - 1] + "（モジュロ43・照合OK）";
+            }
+          }
+          const endRun = runs[Math.min(endIdx - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "code39", label: "Code39", text,
+            detail: { チェックディジット: checked, "読み取った生の文字列": chars },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      // ── Code93（モジュール式・6要素で9モジュール） ──
+      const CODE93_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%abcd*";
+      const CODE93_PATTERNS = [
+        "131112", "111213", "111312", "111411", "121113", "121212", "121311", "111114", "131211", "141111",
+        "211113", "211212", "211311", "221112", "221211", "231111", "112113", "112212", "112311", "122112",
+        "132111", "111123", "111222", "111321", "121122", "131121", "212112", "212211", "211122", "211221",
+        "221121", "222111", "112122", "112221", "122121", "123111", "121131", "311112", "311211", "321111",
+        "112131", "113121", "211131", "121221", "312111", "311121", "122211", "111141"
+      ].map(s => s.split("").map(Number));
+
+      function decodeCode93Runs(runs) {
+        const lens = runs.map(r => r.len);
+        const START = CODE93_PATTERNS[47];                        // "*"
+        for (let s = 0; s + 6 <= runs.length; s++) {
+          if (!runs[s].dark) continue;
+          if (patternMatchVariance(lens.slice(s, s + 6), START, 0.7) > 0.25) continue;
+          const unit = lens.slice(s, s + 6).reduce((a, b) => a + b, 0) / 9;
+          if (s > 0 && runs[s - 1].len < unit * 3) continue;
+
+          let values = [];
+          let i = s + 6, ok = false, endIdx = i;
+          while (i + 6 <= runs.length) {
+            const cs = lens.slice(i, i + 6);
+            let best = -1, bv = 0.25;
+            for (let v = 0; v < CODE93_PATTERNS.length; v++) {
+              const d = patternMatchVariance(cs, CODE93_PATTERNS[v], 0.7);
+              if (d < bv) { bv = d; best = v; }
+            }
+            if (best < 0) break;
+            if (best === 47) {                                     // 停止文字
+              // 停止文字の直後に終端バー（1モジュール）が必要
+              ok = i + 6 < runs.length && runs[i + 6].dark;
+              endIdx = i + 7;
+              break;
+            }
+            values.push(best);
+            i += 6;
+            if (values.length > 90) break;
+          }
+          if (!ok || values.length < 3) continue;
+
+          // チェック文字 C / K の検証
+          const k = values.pop(), c = values.pop();
+          const weighted = (arr, maxWeight) => {
+            let sum = 0;
+            for (let n = 0; n < arr.length; n++) {
+              const weight = (arr.length - n - 1) % maxWeight + 1;
+              sum += weight * arr[n];
+            }
+            return sum % 47;
+          };
+          if (weighted(values, 20) !== c) continue;
+          if (weighted(values.concat([c]), 15) !== k) continue;
+
+          // シフト文字（a=($) b=(%) c=(/) d=(+)）を展開してフルASCIIへ
+          let text = "";
+          let bad = false;
+          for (let n = 0; n < values.length; n++) {
+            const ch = CODE93_ALPHABET[values[n]];
+            if (ch >= "a" && ch <= "d") {
+              const next = CODE93_ALPHABET[values[++n]];
+              if (next === undefined) { bad = true; break; }
+              const code = next.charCodeAt(0);
+              if (ch === "a") text += String.fromCharCode(code - 64);            // ($) 制御文字
+              else if (ch === "b") text += String.fromCharCode(code + 32);       // (%) 記号など
+              else if (ch === "c") text += String.fromCharCode(code - 32);       // (/)
+              else text += String.fromCharCode(code + 32);                       // (+) 小文字
+            } else {
+              text += ch;
+            }
+          }
+          if (bad) continue;
+
+          const endRun = runs[Math.min(endIdx - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "code93", label: "Code93", text,
+            detail: { チェック文字: "C/K ともに照合OK", シンボル数: values.length + 2 },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      // ── ITF（インターリーブド2 of 5・細太5要素で2本が太） ──
+      const ITF_PATTERNS = [
+        "nnwwn", "wnnnw", "nwnnw", "wwnnn", "nnwnw", "wnwnn", "nwwnn", "nnnww", "wnnwn", "nwnwn"
+      ].map(widthsToPattern);
+
+      function decodeITFRuns(runs) {
+        const lens = runs.map(r => r.len);
+        const isStop = (a, b, c) =>
+          a > b * 1.6 && a > c * 1.6 && Math.abs(b - c) < Math.max(b, c) * 0.7;
+
+        for (let s = 0; s + 10 < runs.length; s++) {
+          if (!runs[s].dark) continue;
+          // 開始パターン: 細バー・細スペース・細バー・細スペース（4要素とも細）
+          const st = lens.slice(s, s + 4);
+          const avg = (st[0] + st[1] + st[2] + st[3]) / 4;
+          if (st.some(v => Math.abs(v - avg) > avg * 0.5)) continue;
+          if (s > 0 && runs[s - 1].len < avg * 8) continue;         // ITFは広いクワイエットゾーンが要る
+
+          const digits = [];
+          let i = s + 4, ok = false, endIdx = i;
+          for (;;) {
+            // データが取れる限りデータとして読む（終了パターンの判定はその後）
+            if (i + 10 <= runs.length) {
+              const bars = [lens[i], lens[i + 2], lens[i + 4], lens[i + 6], lens[i + 8]];
+              const spaces = [lens[i + 1], lens[i + 3], lens[i + 5], lens[i + 7], lens[i + 9]];
+              const d1 = ITF_PATTERNS.indexOf(toNarrowWidePattern(bars, 2));
+              const d2 = ITF_PATTERNS.indexOf(toNarrowWidePattern(spaces, 2));
+              if (d1 >= 0 && d2 >= 0) {
+                digits.push(d1, d2);
+                i += 10;
+                if (digits.length > 40) break;
+                continue;
+              }
+            }
+            // 終了パターン: 太バー・細スペース・細バー
+            if (i + 3 <= runs.length && isStop(lens[i], lens[i + 1], lens[i + 2])) {
+              const after = runs[i + 3];
+              const quietOK = !after || (!after.dark && after.len >= avg * 5) || i + 3 >= runs.length - 1;
+              ok = quietOK && digits.length >= 6 && digits.length % 2 === 0;
+              endIdx = i + 3;
+            }
+            break;
+          }
+          if (!ok) continue;
+
+          const text = digits.join("");
+          let checked = "なし";
+          if (text.length === 14) {                                // ITF-14 はチェックディジット付き
+            if (eanCheckDigit(text.slice(0, -1)) !== Number(text[text.length - 1])) continue;
+            checked = text[text.length - 1] + "（モジュロ10・照合OK）";
+          } else {
+            checked = "この桁数では規定なし（検証していません）";
+          }
+          const endRun = runs[Math.min(endIdx - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "itf", label: text.length === 14 ? "ITF-14" : "ITF（インターリーブド2 of 5）",
+            text,
+            detail: { 桁数: text.length + " 桁", チェックディジット: checked },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      // ── NW-7 / Codabar（細太7要素・start/stopはA〜D） ──
+      const CODABAR_TABLE = {
+        "0": "nnnnnww", "1": "nnnnwwn", "2": "nnnwnnw", "3": "wwnnnnn", "4": "nnwnnwn",
+        "5": "wnnnnwn", "6": "nwnnnnw", "7": "nwnnwnn", "8": "nwwnnnn", "9": "wnnwnnn",
+        "-": "nnnwwnn", "$": "nnwwnnn", ":": "wnnnwnw", "/": "wnwnnnw", ".": "wnwnwnn",
+        "+": "nnwnwnw", "A": "nnwwnwn", "B": "nwnwnnw", "C": "nnnwnww", "D": "nnnwwwn"
+      };
+      const CODABAR_BY_PATTERN = {};
+      for (const ch of Object.keys(CODABAR_TABLE)) CODABAR_BY_PATTERN[widthsToPattern(CODABAR_TABLE[ch])] = ch;
+
+      function decodeCodabarRuns(runs) {
+        const lens = runs.map(r => r.len);
+        for (let s = 0; s + 7 <= runs.length; s++) {
+          if (!runs[s].dark) continue;
+          const startCh = CODABAR_BY_PATTERN[toNarrowWideByThreshold(lens.slice(s, s + 7))];
+          if (startCh === undefined || "ABCD".indexOf(startCh) < 0) continue;
+          const unit = lens.slice(s, s + 7).reduce((a, b) => a + b, 0) / 10;
+          if (s > 0 && runs[s - 1].len < unit * 3) continue;
+
+          let chars = startCh;
+          let i = s + 8, ok = false, endIdx = i;                    // 7要素＋文字間ギャップ1
+          while (i + 7 <= runs.length) {
+            const ch = CODABAR_BY_PATTERN[toNarrowWideByThreshold(lens.slice(i, i + 7))];
+            if (ch === undefined) break;
+            chars += ch;
+            endIdx = i + 7;
+            if ("ABCD".indexOf(ch) >= 0) { ok = true; break; }      // 停止文字
+            i += 8;
+            if (chars.length > 64) break;
+          }
+          if (!ok || chars.length < 3) continue;
+          const body = chars.slice(1, -1);
+          if (body.length === 0 || /[ABCD]/.test(body)) continue;   // 途中にA〜Dは入らない
+
+          const endRun = runs[Math.min(endIdx - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "codabar", label: "NW-7 / Codabar", text: body,
+            detail: { スタート文字: chars[0], ストップ文字: chars[chars.length - 1], 全体: chars },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      // ── UPC-E（6桁＋パリティでUPC-A 12桁に展開） ──
+      const UPCE_PARITY = [   // チェックディジットごとの L(0)/G(1) パターン（ナンバーシステム0）
+        "EEEOOO", "EEOEOO", "EEOOEO", "EEOOOE", "EOEEOO",
+        "EOOEEO", "EOOOEE", "EOEOEO", "EOEOOE", "EOOEOE"
+      ];
+
+      /** UPC-E 6桁＋ナンバーシステム＋チェックディジット → UPC-A 12桁 */
+      function upceToUpca(ns, d, check) {
+        const last = Number(d[5]);
+        let body;
+        if (last <= 2) body = d.slice(0, 2) + d[5] + "0000" + d.slice(2, 5);
+        else if (last === 3) body = d.slice(0, 3) + "00000" + d.slice(3, 5);
+        else if (last === 4) body = d.slice(0, 4) + "00000" + d[4];
+        else body = d.slice(0, 5) + "0000" + d[5];
+        return String(ns) + body + String(check);
+      }
+
+      function decodeUPCERuns(runs) {
+        const lens = runs.map(r => r.len);
+        const GUARD = [1, 1, 1];
+        for (let s = 0; s + 2 < runs.length; s++) {
+          if (!runs[s].dark) continue;
+          if (patternMatchVariance(lens.slice(s, s + 3), GUARD, 0.7) > 0.4) continue;
+          const unit = (lens[s] + lens[s + 1] + lens[s + 2]) / 3;
+          if (s > 0 && runs[s - 1].len < unit * 5) continue;         // 前のクワイエットゾーン
+          const needed = 3 + 6 * 4 + 6;                            // 開始3 + 6桁 + 終了6要素
+          if (s + needed > runs.length) continue;
+
+          let p = s + 3;
+          const digits = [], parity = [];
+          let ok = true;
+          for (let d = 0; d < 6; d++, p += 4) {
+            const cs = lens.slice(p, p + 4);
+            let best = -1, bv = 0.5, bp = "";
+            for (let n = 0; n < 10; n++) {
+              const vl = patternMatchVariance(cs, EAN_L_W[n], 0.7);
+              if (vl < bv) { bv = vl; best = n; bp = "O"; }        // 奇数パリティ(Lコード)
+              const vg = patternMatchVariance(cs, EAN_G_W[n], 0.7);
+              if (vg < bv) { bv = vg; best = n; bp = "E"; }        // 偶数パリティ(Gコード)
+            }
+            if (best < 0) { ok = false; break; }
+            digits.push(best); parity.push(bp);
+          }
+          if (!ok) continue;
+          // 終了ガード 010101（6要素）
+          if (patternMatchVariance(lens.slice(p, p + 6), [1, 1, 1, 1, 1, 1], 0.7) > 0.5) continue;
+          p += 6;
+
+          // 全体の幅が51モジュール分に収まっているか（他方式の誤検出よけ）
+          let total = 0;
+          for (let k = s; k < p; k++) total += lens[k];
+          if (Math.abs(total - unit * 51) > unit * 51 * 0.2) continue;
+          const tail = runs[p];
+          if (tail && (tail.dark || tail.len < unit * 5)) continue; // 直後のクワイエットゾーン
+
+          const par = parity.join("");
+          let check = UPCE_PARITY.indexOf(par);
+          let ns = 0;
+          if (check < 0) {
+            // ナンバーシステム1はパリティが反転する
+            const flipped = par.split("").map(c => c === "E" ? "O" : "E").join("");
+            check = UPCE_PARITY.indexOf(flipped);
+            ns = 1;
+          }
+          if (check < 0) continue;
+
+          const upca = upceToUpca(ns, digits.join(""), check);
+          if (eanCheckDigit(upca.slice(0, 11)) !== check) continue;
+
+          const endRun = runs[Math.min(p - 1, runs.length - 1)];
+          return {
+            ok: true, kind: "upce", label: "UPC-E", text: String(ns) + digits.join("") + String(check),
+            detail: {
+              "UPC-Aに展開": upca,
+              ナンバーシステム: ns,
+              チェックディジット: check + "（照合OK）",
+              パリティ: par
+            },
+            xStart: runs[s].start, xEnd: endRun.start + endRun.len
+          };
+        }
+        return null;
+      }
+
+      /**
+       * 1行分のランレングスを、自己検証の強い順に各方式で読む。
+       * （チェックディジットを持つものを先に試し、誤検出を減らす）
+       */
+      function decodeOneDRuns(runs) {
+        return decodeCode128Runs(runs)
+          || decodeEANRuns(runs)
+          || decodeUPCERuns(runs)
+          || decodeCode93Runs(runs)
+          || decodeCode39Runs(runs)
+          || decodeITFRuns(runs)
+          || decodeCodabarRuns(runs);
+      }
+
+      /**
+       * 角度をつけた走査線で1次元バーコードを読む（斜めに置かれたコード用）。
+       * 走査線に沿って画素を1つずつ拾い、横一行と同じ処理にかける。
+       */
+      function decode1DAtAngle(bits, w, h, degrees) {
+        const rad = degrees * Math.PI / 180;
+        const dx = Math.cos(rad), dy = Math.sin(rad);
+        const nx = -dy, ny = dx;                       // 走査線に垂直な向き
+        const cx = w / 2, cy = h / 2;
+        const lineLen = Math.ceil(Math.abs(w * dx) + Math.abs(h * dy));
+        const span = Math.ceil((Math.abs(w * nx) + Math.abs(h * ny)) / 2);
+        const step = Math.max(2, Math.floor(Math.min(w, h) / 120));
+        const buf = new Uint8Array(lineLen);
+        const results = [];
+
+        for (let off = -span; off <= span; off += step) {
+          const sx = cx + nx * off - dx * lineLen / 2;
+          const sy = cy + ny * off - dy * lineLen / 2;
+          let dark = 0, n = 0;
+          for (let i = 0; i < lineLen; i++) {
+            const x = Math.round(sx + dx * i), y = Math.round(sy + dy * i);
+            const v = (x < 0 || y < 0 || x >= w || y >= h) ? 0 : bits[y * w + x];
+            buf[i] = v;
+            dark += v;
+            n++;
+          }
+          if (dark < 8 || dark === n) continue;
+          const runs = rowToRuns(buf);
+          if (runs.length < 10) continue;
+          let r = decodeOneDRuns(runs);
+          if (!r) {
+            const rev = new Uint8Array(lineLen);
+            for (let i = 0; i < lineLen; i++) rev[i] = buf[lineLen - 1 - i];
+            r = decodeOneDRuns(rowToRuns(rev));
+          }
+          if (r) {
+            // 走査線上の位置を画像の座標へ戻す
+            const p0 = { x: sx + dx * r.xStart, y: sy + dy * r.xStart };
+            const p1 = { x: sx + dx * r.xEnd, y: sy + dy * r.xEnd };
+            results.push(Object.assign({}, r, {
+              angle: degrees,
+              bounds: {
+                x0: Math.min(p0.x, p1.x), x1: Math.max(p0.x, p1.x),
+                y0: Math.min(p0.y, p1.y), y1: Math.max(p0.y, p1.y)
+              }
+            }));
+          }
+        }
+        // 同じ内容をまとめる
+        const merged = [];
+        for (const r of results) {
+          const same = merged.find(m => m.text === r.text && m.kind === r.kind);
+          if (same) {
+            same.rows++;
+            same.bounds.x0 = Math.min(same.bounds.x0, r.bounds.x0);
+            same.bounds.x1 = Math.max(same.bounds.x1, r.bounds.x1);
+            same.bounds.y0 = Math.min(same.bounds.y0, r.bounds.y0);
+            same.bounds.y1 = Math.max(same.bounds.y1, r.bounds.y1);
+          } else {
+            merged.push(Object.assign({}, r, { rows: 1 }));
+          }
+        }
+        // 斜めの走査線は1本だけの一致が当てにならないため、2本以上を要求する
+        const solid = merged.filter(m => m.rows >= 2);
+        solid.sort((a, b) => b.rows - a.rows);
+        return solid;
+      }
+
+      // 自己検証の強さ（誤検出しにくさ）。同じ場所で複数読めたときの優先度に使う
+      const ONE_D_CONFIDENCE = { code128: 5, code93: 5, ean13: 4, ean8: 4, upce: 3, code39: 3, itf: 2, codabar: 2 };
+
+      /** 重なり合う候補から、信頼度と走査線の本数が高いものを選ぶ */
+      function pickBestOneD(list) {
+        const scored = list.slice().sort((a, b) => {
+          const ca = (ONE_D_CONFIDENCE[a.kind] || 1), cb = (ONE_D_CONFIDENCE[b.kind] || 1);
+          if (ca !== cb) return cb - ca;
+          return b.rows - a.rows;
+        });
+        const kept = [];
+        for (const r of scored) {
+          const overlaps = kept.some(k => {
+            const ox = Math.min(k.bounds.x1, r.bounds.x1) - Math.max(k.bounds.x0, r.bounds.x0);
+            const oy = Math.min(k.bounds.y1, r.bounds.y1) - Math.max(k.bounds.y0, r.bounds.y0);
+            if (ox <= 0 || oy <= 0) return false;
+            const area = (r.bounds.x1 - r.bounds.x0) * (r.bounds.y1 - r.bounds.y0);
+            return area <= 0 || (ox * oy) / area > 0.4;       // 既に採った結果と大きく重なる
+          });
+          if (!overlaps) kept.push(r);
+        }
+        return kept;
+      }
+
+      /** 二値画像を横方向に走査して1次元バーコードを読む */
+      function decode1D(bits, w, h, rotated) {
+        const results = [];
+        const step = Math.max(1, Math.floor(h / 200));
+        const row = new Uint8Array(w);
+        const reversed = new Uint8Array(w);
+        for (let y = 0; y < h; y += step) {
+          const base = y * w;
+          let dark = 0;
+          for (let x = 0; x < w; x++) { row[x] = bits[base + x]; dark += row[x]; }
+          if (dark < 8 || dark === w) continue;
+          const runs = rowToRuns(row);
+          if (runs.length < 10) continue;
+
+          let r = decodeOneDRuns(runs);
+          if (!r) {
+            for (let x = 0; x < w; x++) reversed[x] = row[w - 1 - x];
+            const rr = rowToRuns(reversed);
+            r = decodeOneDRuns(rr);
+            if (r) {
+              const xs = w - r.xEnd, xe = w - r.xStart;
+              r.xStart = xs; r.xEnd = xe; r.detail = Object.assign({}, r.detail, { 走査方向: "右→左" });
+            }
+          }
+          if (r) {
+            r.y = y;
+            r.rotated = !!rotated;
+            results.push(r);
+          }
+        }
+        // 同じ内容をまとめ、走査できた行の範囲を記録
+        const merged = [];
+        for (const r of results) {
+          const same = merged.find(m => m.text === r.text && m.kind === r.kind);
+          if (same) {
+            same.rows++;
+            same.yMin = Math.min(same.yMin, r.y);
+            same.yMax = Math.max(same.yMax, r.y);
+            same.xStart = Math.min(same.xStart, r.xStart);
+            same.xEnd = Math.max(same.xEnd, r.xEnd);
+          } else {
+            merged.push(Object.assign({}, r, { rows: 1, yMin: r.y, yMax: r.y }));
+          }
+        }
+        merged.sort((a, b) => b.rows - a.rows);
+        // しっかり読めた結果がある場合、1本の走査線だけで拾ったものは誤検出とみなす
+        if (merged.length > 1 && merged[0].rows >= 3) return merged.filter(m => m.rows >= 2);
+        return merged;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  DataMatrix (ECC200)
+      //   ・符号語の配置は ISO/IEC 16022 附属書F の手順に従う
+      //   ・誤り訂正は GF(256)（原始多項式 0x12D、生成多項式の根はα^1から）
+      // ══════════════════════════════════════════════════════════
+
+      // 記号サイズ表: [行, 列, データ領域の行, データ領域の列, 領域数(縦), 領域数(横), データ語, ECC語, ブロック数]
+      const DM_SYMBOLS = [
+        [10, 10, 8, 8, 1, 1, 3, 5, 1],
+        [12, 12, 10, 10, 1, 1, 5, 7, 1],
+        [14, 14, 12, 12, 1, 1, 8, 10, 1],
+        [16, 16, 14, 14, 1, 1, 12, 12, 1],
+        [18, 18, 16, 16, 1, 1, 18, 14, 1],
+        [20, 20, 18, 18, 1, 1, 22, 18, 1],
+        [22, 22, 20, 20, 1, 1, 30, 20, 1],
+        [24, 24, 22, 22, 1, 1, 36, 24, 1],
+        [26, 26, 24, 24, 1, 1, 44, 28, 1],
+        [32, 32, 14, 14, 2, 2, 62, 36, 1],
+        [36, 36, 16, 16, 2, 2, 86, 42, 1],
+        [40, 40, 18, 18, 2, 2, 114, 48, 1],
+        [44, 44, 20, 20, 2, 2, 144, 56, 1],
+        [48, 48, 22, 22, 2, 2, 174, 68, 1],
+        [52, 52, 24, 24, 2, 2, 204, 84, 2],
+        [64, 64, 14, 14, 4, 4, 280, 112, 2],
+        [72, 72, 16, 16, 4, 4, 368, 144, 4],
+        [80, 80, 18, 18, 4, 4, 456, 192, 4],
+        [88, 88, 20, 20, 4, 4, 576, 224, 4],
+        [96, 96, 22, 22, 4, 4, 696, 272, 4],
+        [104, 104, 24, 24, 4, 4, 816, 336, 6],
+        [120, 120, 18, 18, 6, 6, 1050, 408, 6],
+        [132, 132, 20, 20, 6, 6, 1304, 496, 8],
+        [144, 144, 22, 22, 6, 6, 1558, 620, 10],
+        [8, 18, 6, 16, 1, 1, 5, 7, 1],
+        [8, 32, 6, 14, 1, 2, 10, 11, 1],
+        [12, 26, 10, 24, 1, 1, 16, 14, 1],
+        [12, 36, 10, 16, 1, 2, 22, 18, 1],
+        [16, 36, 14, 16, 1, 2, 32, 24, 1],
+        [16, 48, 14, 22, 1, 2, 49, 28, 1]
+      ].map(a => ({
+        rows: a[0], cols: a[1], regRows: a[2], regCols: a[3],
+        regsV: a[4], regsH: a[5], dataCW: a[6], eccCW: a[7], blocks: a[8]
+      }));
+
+      function dmSymbolBySize(rows, cols) {
+        return DM_SYMBOLS.find(s => s.rows === rows && s.cols === cols) || null;
+      }
+      function dmSymbolForData(len) {
+        for (const s of DM_SYMBOLS) if (s.dataCW >= len) return s;
+        return null;
+      }
+
+      // ── GF(256) 原始多項式 0x12D（DataMatrix用） ──
+      const DM_EXP = new Uint8Array(512), DM_LOG = new Uint8Array(256);
+      (function () {
+        let x = 1;
+        for (let i = 0; i < 255; i++) { DM_EXP[i] = x; DM_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x12D; }
+        for (let i = 255; i < 512; i++) DM_EXP[i] = DM_EXP[i - 255];
+      })();
+      const dmMul = (a, b) => (a === 0 || b === 0) ? 0 : DM_EXP[DM_LOG[a] + DM_LOG[b]];
+      const dmInv = a => DM_EXP[255 - DM_LOG[a]];
+      function dmPolyEval(p, x) { let y = p[0]; for (let i = 1; i < p.length; i++) y = dmMul(y, x) ^ p[i]; return y; }
+
+      /** 生成多項式（根は α^1 … α^n） */
+      function dmGenerator(n) {
+        let g = [1];
+        for (let i = 1; i <= n; i++) {
+          const ng = new Array(g.length + 1).fill(0);
+          for (let j = 0; j < g.length; j++) {
+            ng[j] ^= g[j];
+            ng[j + 1] ^= dmMul(g[j], DM_EXP[i]);
+          }
+          g = ng;
+        }
+        return g;
+      }
+
+      function dmEccOf(data, eccLen) {
+        const gen = dmGenerator(eccLen);
+        const rem = new Array(eccLen).fill(0);
+        for (const b of data) {
+          const factor = b ^ rem[0];
+          rem.shift(); rem.push(0);
+          for (let i = 0; i < eccLen; i++) rem[i] ^= dmMul(gen[i + 1], factor);
+        }
+        return rem;
+      }
+
+      /** RS復号（根がα^1から） 戻り値 {data, errors} / 失敗はnull */
+      function dmRsDecode(msg, nsym) {
+        const work = msg.slice();
+        const synd = new Array(nsym);
+        let hasErr = false;
+        for (let i = 0; i < nsym; i++) {
+          synd[i] = dmPolyEval(work, DM_EXP[i + 1]);
+          if (synd[i] !== 0) hasErr = true;
+        }
+        if (!hasErr) return { data: work.slice(0, work.length - nsym), errors: 0 };
+
+        let errLoc = [1], oldLoc = [1];
+        const polyScale = (p, s) => p.map(c => dmMul(c, s));
+        const polyAdd = (p, q) => {
+          const r = new Array(Math.max(p.length, q.length)).fill(0);
+          for (let i = 0; i < p.length; i++) r[i + r.length - p.length] ^= p[i];
+          for (let i = 0; i < q.length; i++) r[i + r.length - q.length] ^= q[i];
+          return r;
+        };
+        for (let i = 0; i < nsym; i++) {
+          let delta = synd[i];
+          for (let j = 1; j < errLoc.length; j++) delta ^= dmMul(errLoc[errLoc.length - 1 - j], synd[i - j]);
+          oldLoc = oldLoc.concat([0]);
+          if (delta !== 0) {
+            if (oldLoc.length > errLoc.length) {
+              const newLoc = polyScale(oldLoc, delta);
+              oldLoc = polyScale(errLoc, dmInv(delta));
+              errLoc = newLoc;
+            }
+            errLoc = polyAdd(errLoc, polyScale(oldLoc, delta));
+          }
+        }
+        while (errLoc.length && errLoc[0] === 0) errLoc.shift();
+        const numErrors = errLoc.length - 1;
+        if (numErrors === 0 || numErrors * 2 > nsym) return null;
+
+        const errPos = [];
+        for (let i = 0; i < work.length; i++) {
+          if (dmPolyEval(errLoc, DM_EXP[(255 - i) % 255]) === 0) errPos.push(work.length - 1 - i);
+        }
+        if (errPos.length !== numErrors) return null;
+
+        // Ω(x) = S(x)Λ(x) mod x^nsym
+        const syndPoly = synd.slice().reverse();
+        let omega = [];
+        {
+          const r = new Array(syndPoly.length + errLoc.length - 1).fill(0);
+          for (let j = 0; j < errLoc.length; j++) {
+            if (errLoc[j] === 0) continue;
+            for (let i = 0; i < syndPoly.length; i++) r[i + j] ^= dmMul(syndPoly[i], errLoc[j]);
+          }
+          omega = r.slice(r.length - nsym);
+        }
+
+        for (const pos of errPos) {
+          const i = work.length - 1 - pos;
+          const Xi = DM_EXP[i % 255];
+          const XiInv = dmInv(Xi);
+          let deriv = 0;
+          const deg = errLoc.length - 1;
+          for (let k = 1; k <= deg; k += 2) {
+            deriv ^= dmMul(errLoc[errLoc.length - 1 - k], DM_EXP[(DM_LOG[XiInv] * (k - 1)) % 255]);
+          }
+          if (deriv === 0) return null;
+          const omegaVal = dmPolyEval(omega, XiInv);
+          // 根がα^1から始まるので X^(1-fcr) = X^0 = 1
+          work[pos] ^= dmMul(omegaVal, dmInv(deriv));
+        }
+        for (let i = 0; i < nsym; i++) if (dmPolyEval(work, DM_EXP[i + 1]) !== 0) return null;
+        return { data: work.slice(0, work.length - nsym), errors: errPos.length };
+      }
+
+      // ── 符号語の配置（ISO/IEC 16022 附属書F） ──
+      /** mappingRows×mappingCols の各セルに { cw, bit } を割り当てた表を返す */
+      function dmPlacement(rows, cols) {
+        const map = [];
+        for (let r = 0; r < rows; r++) map.push(new Array(cols).fill(null));
+
+        const module = (row, col, chr, bit) => {
+          if (row < 0) { row += rows; col += 4 - ((rows + 4) % 8); }
+          if (col < 0) { col += cols; row += 4 - ((cols + 4) % 8); }
+          map[row][col] = { cw: chr - 1, bit: bit - 1 };
+        };
+        const utah = (row, col, chr) => {
+          module(row - 2, col - 2, chr, 1);
+          module(row - 2, col - 1, chr, 2);
+          module(row - 1, col - 2, chr, 3);
+          module(row - 1, col - 1, chr, 4);
+          module(row - 1, col, chr, 5);
+          module(row, col - 2, chr, 6);
+          module(row, col - 1, chr, 7);
+          module(row, col, chr, 8);
+        };
+        const corner1 = chr => {
+          module(rows - 1, 0, chr, 1); module(rows - 1, 1, chr, 2); module(rows - 1, 2, chr, 3);
+          module(0, cols - 2, chr, 4); module(0, cols - 1, chr, 5); module(1, cols - 1, chr, 6);
+          module(2, cols - 1, chr, 7); module(3, cols - 1, chr, 8);
+        };
+        const corner2 = chr => {
+          module(rows - 3, 0, chr, 1); module(rows - 2, 0, chr, 2); module(rows - 1, 0, chr, 3);
+          module(0, cols - 4, chr, 4); module(0, cols - 3, chr, 5); module(0, cols - 2, chr, 6);
+          module(0, cols - 1, chr, 7); module(1, cols - 1, chr, 8);
+        };
+        const corner3 = chr => {
+          module(rows - 3, 0, chr, 1); module(rows - 2, 0, chr, 2); module(rows - 1, 0, chr, 3);
+          module(0, cols - 2, chr, 4); module(0, cols - 1, chr, 5); module(1, cols - 1, chr, 6);
+          module(2, cols - 1, chr, 7); module(3, cols - 1, chr, 8);
+        };
+        const corner4 = chr => {
+          module(rows - 1, 0, chr, 1); module(rows - 1, cols - 1, chr, 2); module(0, cols - 3, chr, 3);
+          module(0, cols - 2, chr, 4); module(0, cols - 1, chr, 5); module(1, cols - 3, chr, 6);
+          module(1, cols - 2, chr, 7); module(1, cols - 1, chr, 8);
+        };
+
+        let chr = 1, row = 4, col = 0;
+        do {
+          if (row === rows && col === 0) corner1(chr++);
+          if (row === rows - 2 && col === 0 && (cols % 4)) corner2(chr++);
+          if (row === rows - 2 && col === 0 && (cols % 8) === 4) corner3(chr++);
+          if (row === rows + 4 && col === 2 && (cols % 8) === 0) corner4(chr++);
+          do {
+            if (row < rows && col >= 0 && map[row][col] === null) utah(row, col, chr++);
+            row -= 2; col += 2;
+          } while (row >= 0 && col < cols);
+          row += 1; col += 3;
+          do {
+            if (row >= 0 && col < cols && map[row][col] === null) utah(row, col, chr++);
+            row += 2; col -= 2;
+          } while (row < rows && col >= 0);
+          row += 3; col += 1;
+        } while (row < rows || col < cols);
+
+        // 右下隅の固定パターン
+        if (map[rows - 1][cols - 1] === null) {
+          map[rows - 1][cols - 1] = { fixed: 1 };
+          map[rows - 2][cols - 2] = { fixed: 1 };
+        }
+        return map;
+      }
+
+      /** 符号語列 → シンボル全体のモジュール行列（ファインダ・タイミング込み） */
+      function dmBuildMatrix(codewords, sym) {
+        const mapRows = sym.regRows * sym.regsV;
+        const mapCols = sym.regCols * sym.regsH;
+        const place = dmPlacement(mapRows, mapCols);
+
+        // データ領域のビットを作る
+        const bits = [];
+        for (let r = 0; r < mapRows; r++) bits.push(new Array(mapCols).fill(0));
+        for (let r = 0; r < mapRows; r++) {
+          for (let c = 0; c < mapCols; c++) {
+            const p = place[r][c];
+            if (!p) continue;
+            if (p.fixed) continue;                    // 固定パターンは後でまとめて書く
+            const v = codewords[p.cw];
+            bits[r][c] = (v >> (7 - p.bit)) & 1;
+          }
+        }
+        // 右下隅の固定パターン（配置表が「固定」と示した場合だけ）
+        if (place[mapRows - 1][mapCols - 1] && place[mapRows - 1][mapCols - 1].fixed) {
+          bits[mapRows - 1][mapCols - 1] = 1;
+          bits[mapRows - 2][mapCols - 2] = 1;
+          bits[mapRows - 1][mapCols - 2] = 0;
+          bits[mapRows - 2][mapCols - 1] = 0;
+        }
+
+        // 領域ごとにファインダ・タイミングを付けて並べる
+        const matrix = [];
+        for (let r = 0; r < sym.rows; r++) matrix.push(new Array(sym.cols).fill(false));
+        for (let ry = 0; ry < sym.regsV; ry++) {
+          for (let rx = 0; rx < sym.regsH; rx++) {
+            const oy = ry * (sym.regRows + 2);
+            const ox = rx * (sym.regCols + 2);
+            for (let i = 0; i < sym.regRows + 2; i++) matrix[oy + i][ox] = true;               // 左の実線
+            for (let i = 0; i < sym.regCols + 2; i++) matrix[oy + sym.regRows + 1][ox + i] = true; // 下の実線
+            for (let i = 0; i < sym.regCols + 2; i++) matrix[oy][ox + i] = (i % 2 === 0);          // 上のタイミング
+            for (let i = 0; i < sym.regRows + 2; i++) matrix[oy + i][ox + sym.regCols + 1] = (i % 2 === 1); // 右のタイミング
+            matrix[oy + sym.regRows + 1][ox + sym.regCols + 1] = true;
+            for (let r = 0; r < sym.regRows; r++) {
+              for (let c = 0; c < sym.regCols; c++) {
+                matrix[oy + 1 + r][ox + 1 + c] = bits[ry * sym.regRows + r][rx * sym.regCols + c] === 1;
+              }
+            }
+          }
+        }
+        return matrix;
+      }
+
+      /** シンボル全体の行列 → データ領域のビット行列（ファインダ・タイミングを外す） */
+      function dmExtractBits(matrix, sym) {
+        const mapRows = sym.regRows * sym.regsV;
+        const mapCols = sym.regCols * sym.regsH;
+        const bits = [];
+        for (let r = 0; r < mapRows; r++) bits.push(new Array(mapCols).fill(0));
+        for (let ry = 0; ry < sym.regsV; ry++) {
+          for (let rx = 0; rx < sym.regsH; rx++) {
+            const oy = ry * (sym.regRows + 2);
+            const ox = rx * (sym.regCols + 2);
+            for (let r = 0; r < sym.regRows; r++) {
+              for (let c = 0; c < sym.regCols; c++) {
+                bits[ry * sym.regRows + r][rx * sym.regCols + c] = matrix[oy + 1 + r][ox + 1 + c] ? 1 : 0;
+              }
+            }
+          }
+        }
+        return bits;
+      }
+
+      /** データ領域のビット行列 → 符号語列 */
+      function dmReadCodewords(bits, sym) {
+        const mapRows = sym.regRows * sym.regsV;
+        const mapCols = sym.regCols * sym.regsH;
+        const place = dmPlacement(mapRows, mapCols);
+        const total = sym.dataCW + sym.eccCW;
+        const cws = new Array(total).fill(0);
+        for (let r = 0; r < mapRows; r++) {
+          for (let c = 0; c < mapCols; c++) {
+            const p = place[r][c];
+            if (!p || p.fixed || p.cw >= total) continue;
+            if (bits[r][c]) cws[p.cw] |= 1 << (7 - p.bit);
+          }
+        }
+        return cws;
+      }
+
+      /** ブロックのインターリーブを解いて誤り訂正する */
+      function dmCorrect(cws, sym) {
+        const blocks = sym.blocks;
+        const dataPer = sym.dataCW / blocks;
+        const eccPer = sym.eccCW / blocks;
+        // 144x144 だけ長さが不揃い
+        const special = (sym.rows === 144);
+        let errors = 0;
+        const out = new Array(sym.dataCW);
+        for (let b = 0; b < blocks; b++) {
+          const dLen = special ? (b <= 7 ? 156 : 155) : dataPer;
+          const idx = [];
+          let di = 0;
+          for (let i = b; i < sym.dataCW; i += blocks) idx.push(i);
+          const block = idx.map(i => cws[i]);
+          const eccIdx = [];
+          for (let i = sym.dataCW + b; i < sym.dataCW + sym.eccCW; i += blocks) eccIdx.push(i);
+          const full = block.concat(eccIdx.map(i => cws[i]));
+          const res = dmRsDecode(full, eccIdx.length);
+          if (!res) return null;
+          errors += res.errors;
+          res.data.forEach((v, k) => { out[idx[k]] = v; });
+        }
+        return { data: out, errors };
+      }
+
+      // ── 符号語 → 文字列（復号） ──
+      const DM_C40_BASIC = ["", "", "", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+      const C40_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const DM_C40_SHIFT2 = "!\"#$%&'()*+,-./:;<=>?@[\\]^_";
+      const DM_TEXT_LOWER = "abcdefghijklmnopqrstuvwxyz";
+      const DM_X12 = { 0: "\r", 1: "*", 2: ">", 3: " " };
+
+      function dmUnrandomize255(value, position) {
+        const pseudo = ((149 * position) % 255) + 1;
+        const t = value - pseudo;
+        return t < 0 ? t + 256 : t;
+      }
+
+      function dmDecodeCodewords(data) {
+        let text = "";
+        const bytes = [];
+        const segments = [];
+        let i = 0;
+        let mode = "ascii";
+        let upperShift = false;
+        let pendingEci = null;
+
+        const pushText = (s, label) => {
+          text += s;
+          for (const ch of s) {
+            const c = ch.charCodeAt(0);
+            if (c < 256) bytes.push(c); else bytes.push(0x3F);
+          }
+          const last = segments[segments.length - 1];
+          if (last && last.mode === label) last.text += s;
+          else segments.push({ mode: label, chars: 0, text: s });
+        };
+
+        while (i < data.length) {
+          const v = data[i++];
+          if (mode === "ascii") {
+            if (v === 129) break;                                   // パディング＝ここで終わり
+            if (v >= 1 && v <= 128) {
+              let code = v - 1;
+              if (upperShift) { code += 128; upperShift = false; }
+              pushText(String.fromCharCode(code), "ASCII");
+            } else if (v >= 130 && v <= 229) {
+              const pair = v - 130;
+              pushText(String(pair).padStart(2, "0"), "数字ペア");
+            } else if (v === 230) { mode = "c40"; }
+            else if (v === 231) { mode = "base256"; }
+            else if (v === 232) { segments.push({ mode: "FNC1", chars: 0, text: "" }); }
+            else if (v === 233 || v === 234) { segments.push({ mode: v === 233 ? "分割シンボル" : "リーダプログラミング", chars: 0, text: "" }); }
+            else if (v === 235) { upperShift = true; }
+            else if (v === 236) { pushText("[)>05", "マクロ05"); }
+            else if (v === 237) { pushText("[)>06", "マクロ06"); }
+            else if (v === 238) { mode = "x12"; }
+            else if (v === 239) { mode = "text"; }
+            else if (v === 240) { mode = "edifact"; }
+            else if (v === 241) {
+              // ECI: 1〜3語で表す。1語（値0〜126）は「符号語-1」が指定番号
+              const c1 = data[i++];
+              if (c1 <= 127) {
+                pendingEci = c1 - 1;
+              } else {
+                // 2語・3語形式は番号を確定させず、位置だけ合わせて自動判定に任せる
+                i += (c1 <= 191) ? 1 : 2;
+                pendingEci = null;
+              }
+              segments.push({ mode: "ECI", chars: 0, text: pendingEci === null ? "指定あり" : "指定 " + pendingEci });
+            } else if (v === 0 || v > 241) {
+              // 不正な値
+              return null;
+            }
+          } else if (mode === "c40" || mode === "text" || mode === "x12") {
+            if (i >= data.length) break;
+            if (data[i - 1] === 254) { mode = "ascii"; continue; }
+            const v1 = data[i - 1], v2 = data[i++];
+            if (v1 === 254) { mode = "ascii"; i--; continue; }
+            const total = v1 * 256 + v2 - 1;
+            const c1 = Math.floor(total / 1600);
+            const c2 = Math.floor((total - c1 * 1600) / 40);
+            const c3 = total - c1 * 1600 - c2 * 40;
+            const vals = [c1, c2, c3];
+            if (mode === "x12") {
+              for (const c of vals) {
+                if (DM_X12[c] !== undefined) pushText(DM_X12[c], "X12");
+                else if (c >= 4 && c <= 13) pushText(String(c - 4), "X12");
+                else if (c >= 14 && c <= 39) pushText(C40_UPPER[c - 14], "X12");
+                else return null;
+              }
+            } else {
+              // C40 / Text はシフト状態を持つ
+              if (!dmDecodeC40Set(vals, mode, pushText)) return null;
+            }
+            // 次が254なら基本モードへ戻る
+            if (data[i] === 254) { i++; mode = "ascii"; }
+          } else if (mode === "base256") {
+            let pos = i;                                            // 長さバイトの位置（1始まり）
+            let len = dmUnrandomize255(data[i - 1], i);
+            if (len === 0) len = data.length - i;                   // 0 = 残り全部
+            else if (len >= 250) {
+              const len2 = dmUnrandomize255(data[i++], pos + 1);
+              len = (len - 249) * 250 + len2;
+            }
+            const raw = [];
+            for (let k = 0; k < len && i < data.length; k++, i++) {
+              raw.push(dmUnrandomize255(data[i], i + 1));
+            }
+            for (const b of raw) bytes.push(b);
+            const dr = decodeBytes(raw, pendingEci);
+            text += dr.text;
+            segments.push({ mode: "バイナリ(Base256)", chars: raw.length, text: dr.text, charset: dr.charset });
+            mode = "ascii";
+          } else if (mode === "edifact") {
+            // 3バイトに4文字（6ビットずつ）
+            i--;
+            if (i + 3 > data.length) { mode = "ascii"; continue; }
+            const b1 = data[i++], b2 = data[i++], b3 = data[i++];
+            const packed = (b1 << 16) | (b2 << 8) | b3;
+            let done = false;
+            for (let k = 3; k >= 0; k--) {
+              const c = (packed >> (k * 6)) & 0x3F;
+              if (c === 31) { mode = "ascii"; done = true; break; }
+              pushText(String.fromCharCode(c < 32 ? c + 64 : c), "EDIFACT");
+            }
+            if (done) continue;
+          }
+        }
+        return { text, bytes, segments };
+      }
+
+      /** C40 / Text の値を文字へ（集合ごとの対応表） */
+      function dmC40Char(setNo, c, isText) {
+        if (setNo === 0) {
+          if (c === 3) return " ";
+          if (c >= 4 && c <= 13) return String(c - 4);
+          if (c >= 14 && c <= 39) return isText ? DM_TEXT_LOWER[c - 14] : C40_UPPER[c - 14];
+          return null;
+        }
+        if (setNo === 1) return String.fromCharCode(c);                 // 制御文字 (0-31)
+        if (setNo === 2) return c < DM_C40_SHIFT2.length ? DM_C40_SHIFT2[c] : null;
+        // シフト3: 0='`' / 1-26=英字 / 27-31='{','|','}','~',DEL
+        if (c === 0) return "`";
+        if (c <= 26) return String.fromCharCode((isText ? 64 : 96) + c);
+        return String.fromCharCode(96 + c);
+      }
+
+      /** C40 / Text の3値を文字へ（シフト状態つき） */
+      const dmC40State = { shift: 0, upper: false };
+      function dmDecodeC40Set(vals, mode, pushText) {
+        const isText = (mode === "text");
+        const label = isText ? "Text" : "C40";
+        for (const c of vals) {
+          if (dmC40State.shift === 0 && (c === 0 || c === 1 || c === 2)) {
+            dmC40State.shift = c + 1;
+            continue;
+          }
+          const setNo = dmC40State.shift;
+          dmC40State.shift = 0;
+          if (setNo === 2 && c === 30) { dmC40State.upper = true; continue; }   // アッパーシフト
+          if (setNo === 2 && (c === 27 || c === 28 || c === 29 || c === 31)) continue; // FNC1など
+          let ch = dmC40Char(setNo, c, isText);
+          if (ch === null) return false;
+          if (dmC40State.upper) { ch = String.fromCharCode(ch.charCodeAt(0) + 128); dmC40State.upper = false; }
+          pushText(ch, label);
+        }
+        return true;
+      }
+
+      /** DataMatrixのモジュール行列を解析する */
+      function decodeDataMatrixMatrix(matrix) {
+        const rows = matrix.length, cols = matrix[0].length;
+        const sym = dmSymbolBySize(rows, cols);
+        if (!sym) return { ok: false, error: "対応していないサイズです (" + rows + "×" + cols + ")" };
+
+        const bits = dmExtractBits(matrix, sym);
+        const cws = dmReadCodewords(bits, sym);
+        const corrected = dmCorrect(cws, sym);
+        if (!corrected) return { ok: false, error: "誤り訂正に失敗しました" };
+
+        dmC40State.shift = 0;
+        const parsed = dmDecodeCodewords(corrected.data);
+        if (!parsed) return { ok: false, error: "符号語を解釈できません" };
+
+        return {
+          ok: true,
+          text: parsed.text,
+          bytes: parsed.bytes,
+          segments: parsed.segments,
+          rows, cols,
+          dataCW: sym.dataCW,
+          eccCW: sym.eccCW,
+          blocks: sym.blocks,
+          regions: sym.regsV * sym.regsH,
+          errorsCorrected: corrected.errors,
+          dataCodewords: corrected.data
+        };
+      }
+
+      // ── DataMatrix: 画像からの検出 ──
+      //   連結している暗部のかたまりを見つけ、その外接矩形に対して
+      //   規格上ありえるサイズを順に当てはめ、ファインダ（L字＋タイミング）が
+      //   合う組み合わせを採用する。回転（90度単位）にも対応する。
+
+      /** 暗部の連結成分の外接矩形を大きい順に返す */
+      function findDarkComponents(bits, w, h, maxCount) {
+        const labels = new Int32Array(w * h);
+        const boxes = [];
+        const stack = new Int32Array(w * h);
+        let label = 0;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const idx = y * w + x;
+            if (!bits[idx] || labels[idx]) continue;
+            label++;
+            let sp = 0;
+            stack[sp++] = idx;
+            labels[idx] = label;
+            let x0 = x, x1 = x, y0 = y, y1 = y, area = 0;
+            while (sp > 0) {
+              const p = stack[--sp];
+              const px = p % w, py = (p / w) | 0;
+              area++;
+              if (px < x0) x0 = px;
+              if (px > x1) x1 = px;
+              if (py < y0) y0 = py;
+              if (py > y1) y1 = py;
+              for (let dy = -1; dy <= 1; dy++) {
+                const ny = py + dy;
+                if (ny < 0 || ny >= h) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                  const nx = px + dx;
+                  if (nx < 0 || nx >= w) continue;
+                  const np = ny * w + nx;
+                  if (bits[np] && !labels[np]) { labels[np] = label; stack[sp++] = np; }
+                }
+              }
+            }
+            if (area >= 40 && (x1 - x0) >= 8 && (y1 - y0) >= 8) {
+              boxes.push({ x0, y0, x1, y1, area });
+            }
+          }
+        }
+        boxes.sort((a, b) => b.area - a.area);
+        return boxes.slice(0, maxCount || 8);
+      }
+
+      /** 外接矩形を rows×cols の格子として標本化する */
+      function sampleDMGrid(bits, w, h, box, rows, cols) {
+        const bw = box.x1 - box.x0 + 1, bh = box.y1 - box.y0 + 1;
+        const cwd = bw / cols, chd = bh / rows;
+        if (cwd < 1 || chd < 1) return null;
+        const matrix = [];
+        for (let r = 0; r < rows; r++) {
+          const row = new Array(cols).fill(false);
+          for (let c = 0; c < cols; c++) {
+            const cx = box.x0 + (c + 0.5) * cwd;
+            const cy = box.y0 + (r + 0.5) * chd;
+            // 1モジュールが十分大きいときだけ中心付近を多数決で見る
+            const step = Math.floor(Math.min(cwd, chd) / 4);
+            if (step < 1) {
+              const xx = Math.round(cx), yy = Math.round(cy);
+              row[c] = (xx >= 0 && yy >= 0 && xx < w && yy < h) ? !!bits[yy * w + xx] : false;
+            } else {
+              let dark = 0, total = 0;
+              for (let dy = -step; dy <= step; dy += step) {
+                for (let dx = -step; dx <= step; dx += step) {
+                  const xx = Math.round(cx + dx), yy = Math.round(cy + dy);
+                  if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+                  total++;
+                  if (bits[yy * w + xx]) dark++;
+                }
+              }
+              row[c] = total > 0 && dark * 2 > total;
+            }
+          }
+          matrix.push(row);
+        }
+        return matrix;
+      }
+
+      function rotateMatrixCW(m) {
+        const rows = m.length, cols = m[0].length;
+        const out = [];
+        for (let c = 0; c < cols; c++) {
+          const row = new Array(rows);
+          for (let r = 0; r < rows; r++) row[r] = m[rows - 1 - r][c];
+          out.push(row);
+        }
+        return out;
+      }
+
+      /** ファインダ（左と下が実線・上と右がタイミング）の一致度 0〜1 */
+      function dmFinderScore(m) {
+        const rows = m.length, cols = m[0].length;
+        let hit = 0, total = 0;
+        for (let r = 0; r < rows; r++) { total++; if (m[r][0]) hit++; }                   // 左＝実線
+        for (let c = 0; c < cols; c++) { total++; if (m[rows - 1][c]) hit++; }            // 下＝実線
+        for (let c = 0; c < cols; c++) { total++; if (m[0][c] === (c % 2 === 0)) hit++; } // 上＝タイミング
+        for (let r = 0; r < rows; r++) { total++; if (m[r][cols - 1] === (r % 2 === 1)) hit++; } // 右＝タイミング
+        return hit / total;
+      }
+
+      /**
+       * 二値画像から DataMatrix を検出して読む。
+       * excluded に入っている領域（既に読んだコード）は無視する。
+       */
+      function detectAndDecodeDataMatrix(bits, w, h, excluded) {
+        const boxes = findDarkComponents(bits, w, h, 8).filter(b => {
+          if (!excluded) return true;
+          const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+          return !excluded.some(r => cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1);
+        });
+
+        const results = [];
+        for (const box of boxes) {
+          const bw = box.x1 - box.x0 + 1, bh = box.y1 - box.y0 + 1;
+          const aspect = bw / bh;
+          let best = null;
+          for (const sym of DM_SYMBOLS) {
+            for (const swap of [false, true]) {                    // 90度回転で縦横が入れ替わる場合
+              const rows = swap ? sym.cols : sym.rows;
+              const cols = swap ? sym.rows : sym.cols;
+              if (swap && sym.rows === sym.cols) continue;
+              if (Math.abs(aspect - cols / rows) > 0.18 * (cols / rows)) continue;
+              if (bw / cols < 1.2 || bh / rows < 1.2) continue;     // 1モジュールが小さすぎる
+              const sampled = sampleDMGrid(bits, w, h, box, rows, cols);
+              if (!sampled) continue;
+              let m = sampled;
+              for (let rot = 0; rot < 4; rot++) {
+                if (m.length === sym.rows && m[0].length === sym.cols) {
+                  const score = dmFinderScore(m);
+                  if (score > 0.9 && (!best || score > best.score)) best = { m, score, sym, rot };
+                }
+                m = rotateMatrixCW(m);
+              }
+            }
+          }
+          if (!best) continue;
+          const decoded = decodeDataMatrixMatrix(best.m);
+          if (!decoded.ok) continue;
+          decoded.bounds = { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1 };
+          decoded.moduleSize = (box.x1 - box.x0 + 1) / best.sym.cols;
+          decoded.finderScore = best.score;
+          decoded.rotation = best.rot * 90;
+          decoded.matrix = best.m;
+          results.push(decoded);
+        }
+        return results;
+      }
+
+      // ══════════════════════════════════════════════════════════
+      //  総合エントリポイント
+      // ══════════════════════════════════════════════════════════
+
+      /**
+       * @param {{data:Uint8ClampedArray|Uint8Array, width:number, height:number}} imageData
+       * @param {{maxCodes?:number}} [options]
+       */
+      function decodeImage(imageData, options) {
+        const opts = options || {};
+        const w = imageData.width, h = imageData.height;
+        const gray = toGray(imageData.data, w, h);
+        const log = [];
+        const results = [];
+
+        // 使用する二値化方式。カメラ解析では 1 種類だけ指定して負荷を下げる（opts.variants）
+        const ALL_VARIANTS = [
+          { key: "hybrid", name: "局所二値化(8x8ブロック)", make: () => binarizeHybrid(gray, w, h) },
+          { key: "otsu", name: "大津の二値化", make: () => binarizeGlobal(gray, w, h) }
+        ];
+        const wantVariants = (opts.variants && opts.variants.length) ? opts.variants : null;
+        const variants = wantVariants
+          ? ALL_VARIANTS.filter(v => wantVariants.indexOf(v.key) >= 0)
+          : ALL_VARIANTS.slice();
+        if (!variants.length) variants.push(ALL_VARIANTS[0]);
+
+        let usedBits = null;
+        let usedName = variants[0].name;
+
+        for (const v of variants) {
+          v.bits = v.make();               // 二値化は必要になった時点で実行（1段目で見つかれば2段目は走らない）
+          if (!usedBits) usedBits = v.bits;
+          const found = [];
+          // ── QR（見つけた領域を除外しながら最大8個まで）
+          const excluded = [];
+          for (let n = 0; n < (opts.maxCodes || 8); n++) {
+            const r = detectAndDecodeQR(v.bits, w, h, excluded);
+            if (!r.ok) {
+              if (n === 0) log.push(v.name + " / QR: " + r.error);
+              break;
+            }
+            found.push({
+              kind: "qr", label: "QRコード", text: r.text, bytes: r.bytes,
+              corners: r.corners, bounds: r.bounds,
+              detail: {
+                型番: "バージョン " + r.version + " (" + r.size + "×" + r.size + "モジュール)",
+                誤り訂正レベル: r.eclName,
+                マスクパターン: r.mask,
+                ブロック数: r.numBlocks,
+                "ECC語数/ブロック": r.eccPerBlock,
+                総コードワード数: r.totalCodewords,
+                訂正した誤り: r.errorsCorrected + " 語",
+                文字コード: r.charset,
+                整列パターン使用: r.usedAlignment ? "あり" : "なし",
+                モジュール実寸: r.moduleSize.toFixed(2) + " px"
+              },
+              segments: r.segments,
+              dataCodewords: r.dataCodewords,
+              matrix: r.matrix
+            });
+            excluded.push({
+              x0: r.bounds.x0 - 4 * r.moduleSize, x1: r.bounds.x1 + 4 * r.moduleSize,
+              y0: r.bounds.y0 - 4 * r.moduleSize, y1: r.bounds.y1 + 4 * r.moduleSize
+            });
+          }
+
+          // ── DataMatrix
+          const dms = detectAndDecodeDataMatrix(v.bits, w, h, excluded);
+          for (const d of dms) {
+            found.push({
+              kind: "datamatrix", label: "DataMatrix", text: d.text, bytes: d.bytes,
+              bounds: d.bounds,
+              detail: {
+                記号サイズ: d.rows + "×" + d.cols + " モジュール",
+                データ領域: d.regions + " 個",
+                データ語: d.dataCW,
+                ECC語: d.eccCW,
+                ブロック数: d.blocks,
+                訂正した誤り: d.errorsCorrected + " 語",
+                向き: d.rotation + " 度",
+                モジュール実寸: d.moduleSize.toFixed(2) + " px"
+              },
+              segments: d.segments,
+              dataCodewords: d.dataCodewords,
+              matrix: d.matrix
+            });
+            excluded.push({
+              x0: d.bounds.x0 - 4 * d.moduleSize, x1: d.bounds.x1 + 4 * d.moduleSize,
+              y0: d.bounds.y0 - 4 * d.moduleSize, y1: d.bounds.y1 + 4 * d.moduleSize
+            });
+          }
+
+          // ── 1次元: 横・縦（必要なら斜めも）で候補を集め、信頼度と支持本数で選ぶ
+          const cand = [];
+          for (const r of decode1D(v.bits, w, h, false)) {
+            cand.push({
+              kind: r.kind, label: r.label, text: r.text, rows: r.rows,
+              bounds: { x0: r.xStart, x1: r.xEnd, y0: r.yMin, y1: r.yMax },
+              detail: Object.assign({ 読み取れた走査線: r.rows + " 本", 向き: "横" }, r.detail)
+            });
+          }
+          {
+            const rot = rotate90(v.bits, w, h);
+            for (const r of decode1D(rot, h, w, true)) {
+              cand.push({
+                kind: r.kind, label: r.label + "（縦向き）", text: r.text, rows: r.rows,
+                bounds: { x0: w - 1 - r.yMax, x1: w - 1 - r.yMin, y0: r.xStart, y1: r.xEnd },
+                detail: Object.assign({ 読み取れた走査線: r.rows + " 本", 向き: "縦" }, r.detail)
+              });
+            }
+          }
+          // まだ確からしい結果が無いときだけ、斜めの走査線も試す（重いため）
+          const strong = cand.some(c => (ONE_D_CONFIDENCE[c.kind] || 1) >= 4 || c.rows >= 5);
+          if (!strong && opts.angles !== false) {
+            for (let deg = 10; deg < 180; deg += 10) {
+              if (deg === 90) continue;
+              for (const r of decode1DAtAngle(v.bits, w, h, deg)) {
+                cand.push({
+                  kind: r.kind, label: r.label + "（斜め）", text: r.text, rows: r.rows,
+                  bounds: r.bounds,
+                  detail: Object.assign({ 読み取れた走査線: r.rows + " 本", 傾き: "約 " + r.angle + " 度" }, r.detail)
+                });
+              }
+            }
+          }
+          for (const r of pickBestOneD(cand)) {
+            found.push({
+              kind: r.kind, label: r.label, text: r.text,
+              bytes: Array.from(r.text).map(c => c.charCodeAt(0)),
+              bounds: r.bounds, detail: r.detail, segments: null
+            });
+          }
+
+          if (found.length) {
+            results.push.apply(results, found);
+            usedBits = v.bits;
+            usedName = v.name;
+            break;
+          }
+          log.push(v.name + ": 検出できませんでした");
+        }
+
+        return {
+          results,
+          log,
+          binarization: usedName,
+          bits: usedBits,
+          width: w,
+          height: h
+        };
+      }
+
+      /** 90度回転（縦向きバーコード用）。元の (x,y) → 新しい (h-1-y, x) */
+      function rotate90(bits, w, h) {
+        const out = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            out[x * h + (h - 1 - y)] = bits[y * w + x];
+          }
+        }
+        return out;
+      }
+
+      const api = {
+        decodeImage,
+        decodeQRMatrix,
+        detectAndDecodeQR,
+        decode1D,
+        binarizeHybrid,
+        binarizeGlobal,
+        toGray,
+        rsDecode,
+        rowToRuns,
+        decodeCode128Runs,
+        decodeEANRuns,
+        decodeDataMatrixMatrix,
+        detectAndDecodeDataMatrix,
+        dmSymbolForData,
+        dmSymbolBySize,
+        dmEccOf,
+        dmBuildMatrix,
+        dmPlacement,
+        decodeOneDRuns,
+        decode1DAtAngle,
+        decodeCode39Runs,
+        decodeCode93Runs,
+        decodeITFRuns,
+        decodeCodabarRuns,
+        decodeUPCERuns
+      };
+
+      if (typeof module !== "undefined" && module.exports) module.exports = api;
+      global.BarcodeDecoder = api;
+    })(typeof window !== "undefined" ? window : globalThis);
+    // ===== DECODER CORE END =====
+  </script>
+
+  <!-- ════════ 転送プロトコル（純粋関数。Node のテストからも使う） ════════ -->
+  <script id="qrt-proto-src">
+    // ===== QRT PROTO START =====
+    (function (global) {
+      "use strict";
+      // ── ストリーム（1 回の転送で送る全バイト列）──
+      //   [0]      flags: bit0 = deflate 圧縮あり, bit1 = ファイル（0 ならテキスト）
+      //   [1..4]   元データの長さ (uint32 BE)
+      //   [5..8]   元データの CRC32 (uint32 BE)
+      //   [9]      名前の長さ n, 続く n バイトが UTF-8 の名前（テキストなら 0）
+      //   [..]     MIME の長さ m, 続く m バイトが MIME（テキストなら 0）
+      //   [..]     本体（圧縮あり なら zlib deflate 済み）
+      // ── フレーム（QR 1 枚に入れるバイト列）──
+      //   [0]      マジック 0x51 ('Q')
+      //   [1..2]   セッション ID (uint16 BE)  … 送信のたびに乱数で決める
+      //   [3..4]   このフレームの番号 (uint16 BE, 0 始まり)
+      //   [5..6]   フレーム総数 (uint16 BE)
+      //   [7..]    ストリームの一部（最後のフレームだけ短い）
+      var MAGIC = 0x51, HEADER = 7;
+
+      var CRC_TABLE = (function () {
+        var t = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+          var c = n;
+          for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+          t[n] = c >>> 0;
+        }
+        return t;
+      })();
+      function crc32(bytes) {
+        var c = 0xFFFFFFFF;
+        for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+        return (c ^ 0xFFFFFFFF) >>> 0;
+      }
+      function u8(s) { return new TextEncoder().encode(s); }
+      function str(b) { return new TextDecoder().decode(b); }
+
+      function hasCompression() {
+        return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+      }
+      async function pipe(bytes, stream) {
+        var res = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+        return new Uint8Array(await res.arrayBuffer());
+      }
+      async function deflate(bytes) { return pipe(bytes, new CompressionStream("deflate")); }
+      async function inflate(bytes) { return pipe(bytes, new DecompressionStream("deflate")); }
+
+      /** 元データとメタ情報からストリームを組み立てる（縮まるときだけ圧縮する） */
+      async function buildStream(raw, meta) {
+        meta = meta || {};
+        var body = raw, flags = 0;
+        if (hasCompression() && raw.length >= 32) {
+          try {
+            var z = await deflate(raw);
+            if (z.length < raw.length) { body = z; flags |= 1; }
+          } catch (e) { /* 圧縮できなければ生のまま */ }
+        }
+        if (meta.isFile) flags |= 2;
+        var name = u8(meta.name || ""), mime = u8(meta.mime || "");
+        if (name.length > 255) name = name.slice(0, 255);
+        if (mime.length > 255) mime = mime.slice(0, 255);
+        var head = new Uint8Array(9 + 1 + name.length + 1 + mime.length);
+        var dv = new DataView(head.buffer);
+        head[0] = flags;
+        dv.setUint32(1, raw.length);
+        dv.setUint32(5, crc32(raw));
+        var p = 9;
+        head[p++] = name.length; head.set(name, p); p += name.length;
+        head[p++] = mime.length; head.set(mime, p); p += mime.length;
+        var out = new Uint8Array(head.length + body.length);
+        out.set(head, 0); out.set(body, head.length);
+        return { stream: out, compressed: !!(flags & 1), rawLength: raw.length };
+      }
+
+      /** ストリームを元データに戻す。壊れていれば { ok:false, error } */
+      async function parseStream(stream) {
+        try {
+          if (stream.length < 11) return { ok: false, error: "データが短すぎます" };
+          var dv = new DataView(stream.buffer, stream.byteOffset, stream.byteLength);
+          var flags = stream[0], rawLen = dv.getUint32(1), crc = dv.getUint32(5);
+          var p = 9;
+          var nl = stream[p++]; var name = str(stream.subarray(p, p + nl)); p += nl;
+          var ml = stream[p++]; var mime = str(stream.subarray(p, p + ml)); p += ml;
+          var body = stream.subarray(p);
+          if (flags & 1) {
+            if (!hasCompression()) return { ok: false, error: "この端末は圧縮データを展開できません" };
+            body = await inflate(body);
+          }
+          if (body.length !== rawLen) return { ok: false, error: "長さが一致しません (" + body.length + " / " + rawLen + ")" };
+          if (crc32(body) !== crc) return { ok: false, error: "CRC が一致しません（データが壊れています）" };
+          return { ok: true, data: body, isFile: !!(flags & 2), name: name, mime: mime, compressed: !!(flags & 1) };
+        } catch (e) {
+          return { ok: false, error: "復元に失敗: " + (e && e.message || e) };
+        }
+      }
+
+      /** ストリームをフレームに分割する。chunkLen = QR 1 枚に入るバイト数 − ヘッダ 7 */
+      function splitFrames(stream, chunkLen, sid) {
+        if (chunkLen < 1) throw new Error("chunkLen が小さすぎます");
+        var total = Math.max(1, Math.ceil(stream.length / chunkLen));
+        if (total > 65535) throw new Error("データが大きすぎます（フレーム数 " + total + "）");
+        var frames = [];
+        for (var i = 0; i < total; i++) {
+          var part = stream.subarray(i * chunkLen, Math.min(stream.length, (i + 1) * chunkLen));
+          var f = new Uint8Array(HEADER + part.length);
+          f[0] = MAGIC;
+          f[1] = (sid >>> 8) & 0xFF; f[2] = sid & 0xFF;
+          f[3] = (i >>> 8) & 0xFF; f[4] = i & 0xFF;
+          f[5] = (total >>> 8) & 0xFF; f[6] = total & 0xFF;
+          f.set(part, HEADER);
+          frames.push(f);
+        }
+        return frames;
+      }
+
+      /** QR から出てきたバイト列をフレームとして解釈する。違えば null */
+      function parseFrame(bytes) {
+        if (!bytes || bytes.length < HEADER || bytes[0] !== MAGIC) return null;
+        var sid = (bytes[1] << 8) | bytes[2];
+        var idx = (bytes[3] << 8) | bytes[4];
+        var total = (bytes[5] << 8) | bytes[6];
+        if (total < 1 || idx >= total) return null;
+        var chunk = bytes instanceof Uint8Array ? bytes.subarray(HEADER) : new Uint8Array(bytes.slice(HEADER));
+        if (chunk.length === 0 && total > 1) return null;
+        return { sid: sid, idx: idx, total: total, chunk: chunk };
+      }
+
+      /** 受信側の組み立て器。feed() にフレームを渡すと進捗を返す */
+      function Receiver() {
+        this.reset();
+      }
+      Receiver.prototype.reset = function () {
+        this.sid = -1; this.total = 0; this.got = 0; this.chunks = null; this.chunkLen = 0;
+        this.pendingSid = -1; this.pendingCount = 0;
+        this.startedAt = 0;
+      };
+      Receiver.prototype.feed = function (frame) {
+        if (!frame) return { accepted: false };
+        if (this.sid < 0) {
+          this._begin(frame);
+        } else if (frame.sid !== this.sid) {
+          // 別セッション: 誤読 1 回で切り替わらないよう、同じ新 sid が 2 回続いたら乗り換える
+          if (this.pendingSid === frame.sid) this.pendingCount++; else { this.pendingSid = frame.sid; this.pendingCount = 1; }
+          if (this.pendingCount < 2) return { accepted: false, otherSession: true };
+          this._begin(frame);
+        }
+        this.pendingSid = -1; this.pendingCount = 0;
+        if (frame.total !== this.total) return { accepted: false };
+        var isLast = frame.idx === this.total - 1;
+        if (!isLast) {
+          if (this.chunkLen === 0) this.chunkLen = frame.chunk.length;
+          else if (frame.chunk.length !== this.chunkLen) return { accepted: false };
+        } else if (this.chunkLen && frame.chunk.length > this.chunkLen) {
+          return { accepted: false };
+        }
+        if (this.chunks[frame.idx]) return { accepted: true, duplicate: true, idx: frame.idx };
+        this.chunks[frame.idx] = new Uint8Array(frame.chunk);   // 呼び出し元のバッファから切り離す
+        this.got++;
+        return { accepted: true, idx: frame.idx, complete: this.got === this.total };
+      };
+      Receiver.prototype._begin = function (frame) {
+        this.sid = frame.sid; this.total = frame.total; this.got = 0;
+        this.chunks = new Array(frame.total).fill(null); this.chunkLen = 0;
+        this.startedAt = Date.now();
+      };
+      Receiver.prototype.isComplete = function () { return this.total > 0 && this.got === this.total; };
+      Receiver.prototype.assemble = function () {
+        if (!this.isComplete()) return null;
+        var len = 0;
+        for (var i = 0; i < this.total; i++) len += this.chunks[i].length;
+        var out = new Uint8Array(len), p = 0;
+        for (var j = 0; j < this.total; j++) { out.set(this.chunks[j], p); p += this.chunks[j].length; }
+        return out;
+      };
+      Receiver.prototype.missing = function () {
+        var m = [];
+        for (var i = 0; i < this.total; i++) if (!this.chunks[i]) m.push(i);
+        return m;
+      };
+
+      var api = { MAGIC: MAGIC, HEADER: HEADER, crc32: crc32, hasCompression: hasCompression, deflate: deflate, inflate: inflate,
+                  buildStream: buildStream, parseStream: parseStream, splitFrames: splitFrames, parseFrame: parseFrame, Receiver: Receiver };
+      if (typeof module !== "undefined" && module.exports) module.exports = api;
+      global.QRTProto = api;
+    })(typeof window !== "undefined" ? window : globalThis);
+    // ===== QRT PROTO END =====
+  </script>
+
+  <!-- ════════ アプリ本体 ════════ -->
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const P = window.QRTProto;
+
+      // ── 共通 UI ──
+      let toastTimer = 0;
+      function toast(msg, isErr) {
+        const t = $("toast");
+        t.textContent = msg; t.style.color = isErr ? "var(--red)" : "";
+        t.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+      }
+      function fmtBytes(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+        return (n / 1048576).toFixed(2) + " MB";
+      }
+      function fmtTime(sec) {
+        sec = Math.max(0, Math.round(sec));
+        return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+      }
+      function switchTab(name) {
+        $("tab-tx").classList.toggle("on", name === "tx");
+        $("tab-rx").classList.toggle("on", name === "rx");
+        $("panel-tx").classList.toggle("on", name === "tx");
+        $("panel-rx").classList.toggle("on", name === "rx");
+        if (name === "tx") stopCamera();
+      }
+      $("tab-tx").addEventListener("click", () => switchTab("tx"));
+      $("tab-rx").addEventListener("click", () => switchTab("rx"));
+      $("btn-help").addEventListener("click", () => $("help").classList.add("on"));
+      $("help-close").addEventListener("click", () => $("help").classList.remove("on"));
+      $("help").addEventListener("click", e => { if (e.target === $("help")) $("help").classList.remove("on"); });
+
+      // 画面を消灯させない（対応端末のみ）
+      let wakeLock = null;
+      async function keepAwake(on) {
+        try {
+          if (on && !wakeLock && navigator.wakeLock) {
+            wakeLock = await navigator.wakeLock.request("screen");
+            wakeLock.addEventListener("release", () => { wakeLock = null; });
+          } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+        } catch (e) { wakeLock = null; }
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && (tx.running || rx.stream)) keepAwake(true);
+      });
+
+      // ══════════════════════════════════════════════
+      //  QR エンコード（バイトモード・バージョン固定・マスク固定で高速）
+      // ══════════════════════════════════════════════
+      /** version / eclName で QR 1 枚に入る最大バイト数 */
+      function qrCapacity(version, eclName) {
+        return qrDataCodewords(version, QR_ECC[eclName].ord) - (version <= 9 ? 2 : 3);
+      }
+      function qrEncodeBytes(bytes, version, eclName, mask) {
+        const ecl = QR_ECC[eclName];
+        const capacityBits = qrDataCodewords(version, ecl.ord) * 8;
+        const bits = [];
+        const append = (val, len) => { for (let b = len - 1; b >= 0; b--) bits.push((val >>> b) & 1); };
+        append(0b0100, 4);
+        append(bytes.length, qrCharCountBits(version));
+        for (let i = 0; i < bytes.length; i++) append(bytes[i], 8);
+        if (bits.length > capacityBits) throw new Error("QR に入りきりません");
+        append(0, Math.min(4, capacityBits - bits.length));
+        while (bits.length % 8 !== 0) bits.push(0);
+        for (let pad = 0xEC; bits.length < capacityBits; pad ^= 0xEC ^ 0x11) append(pad, 8);
+        const dataCW = [];
+        for (let p = 0; p < bits.length; p += 8) {
+          let b = 0;
+          for (let q = 0; q < 8; q++) b = (b << 1) | bits[p + q];
+          dataCW.push(b);
+        }
+        return qrBuildMatrix(qrAddEcc(dataCW, version, ecl.ord), version, ecl, mask);
+      }
+      /** 行列を白地のキャンバスへ。1 モジュール整数 px・静穏域 4 モジュール */
+      function drawMatrix(canvas, matrix, sizePx) {
+        const n = matrix.length, quiet = 4, tot = n + quiet * 2;
+        const ms = Math.max(1, Math.floor(sizePx / tot));
+        const dim = ms * tot;
+        if (canvas.width !== dim || canvas.height !== dim) { canvas.width = dim; canvas.height = dim; }
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, dim, dim);
+        ctx.fillStyle = "#000";
+        for (let y = 0; y < n; y++) {
+          const row = matrix[y];
+          let x = 0;
+          while (x < n) {                        // 連続する黒を 1 回の fillRect にまとめる
+            if (!row[x]) { x++; continue; }
+            let x2 = x; while (x2 < n && row[x2]) x2++;
+            ctx.fillRect((x + quiet) * ms, (y + quiet) * ms, (x2 - x) * ms, ms);
+            x = x2;
+          }
+        }
+        return dim;
+      }
+
+      // ══════════════════════════════════════════════
+      //  送る
+      // ══════════════════════════════════════════════
+      const tx = {
+        kind: "text", file: null, prepared: null, running: false, paused: false,
+        frames: null, matrices: null, idx: 0, loop: 1, timer: 0, startedAt: 0, version: 12, ecl: "M", elapsedTimer: 0
+      };
+      let prepSeq = 0;
+
+      $("tx-kind").addEventListener("click", e => {
+        const b = e.target.closest("button"); if (!b) return;
+        tx.kind = b.dataset.kind;
+        [...$("tx-kind").children].forEach(x => x.classList.toggle("on", x === b));
+        $("tx-text-card").style.display = tx.kind === "text" ? "" : "none";
+        $("tx-file-card").style.display = tx.kind === "file" ? "" : "none";
+        schedulePrepare();
+      });
+      $("tx-text").addEventListener("input", schedulePrepare);
+      $("tx-text-clear").addEventListener("click", () => { $("tx-text").value = ""; schedulePrepare(); });
+      $("tx-paste").addEventListener("click", async () => {
+        try {
+          const t = await navigator.clipboard.readText();
+          if (!t) { toast("クリップボードにテキストがありません", true); return; }
+          $("tx-text").value = t; schedulePrepare();
+        } catch (e) { toast("貼り付けできません。長押しで貼り付けてください", true); }
+      });
+      $("tx-file-btn").addEventListener("click", () => $("tx-file").click());
+      $("tx-file").addEventListener("change", () => {
+        const f = $("tx-file").files && $("tx-file").files[0];
+        tx.file = f || null;
+        $("tx-file-name").textContent = f ? (f.name + "（" + fmtBytes(f.size) + "）") : "未選択";
+        $("tx-shrink-field").style.display = (f && /^image\//.test(f.type)) ? "" : "none";
+        schedulePrepare();
+      });
+      $("tx-shrink").addEventListener("change", schedulePrepare);
+      $("tx-ver").addEventListener("change", updateStats);
+      $("tx-ecl").addEventListener("change", updateStats);
+      $("tx-fps").addEventListener("input", () => { $("tx-fps-val").textContent = $("tx-fps").value; updateStats(); });
+
+      let prepTimer = 0;
+      function schedulePrepare() {
+        // 準備が終わるまでは古いデータで送信できないようにする
+        tx.prepared = null; updateStats();
+        $("tx-start").textContent = "準備中…";
+        clearTimeout(prepTimer); prepTimer = setTimeout(prepare, 250);
+      }
+
+      /** 画像を縮小して JPEG にする（失敗したら元のまま返す） */
+      function shrinkImage(file, maxSide) {
+        return new Promise(resolve => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+            const c = document.createElement("canvas"); c.width = w; c.height = h;
+            c.getContext("2d").drawImage(img, 0, 0, w, h);
+            c.toBlob(blob => {
+              if (!blob) { resolve(null); return; }
+              const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+              resolve(new File([blob], name, { type: "image/jpeg" }));
+            }, "image/jpeg", 0.78);
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+          img.src = url;
+        });
+      }
+
+      /** 入力からストリームを作り、統計を更新する */
+      async function prepare() {
+        const seq = ++prepSeq;
+        tx.prepared = null; $("tx-err").textContent = "";
+        let raw, meta;
+        try {
+          if (tx.kind === "text") {
+            const t = $("tx-text").value;
+            if (!t) { updateStats(); return; }
+            raw = new TextEncoder().encode(t); meta = { isFile: false };
+          } else {
+            let f = tx.file;
+            if (!f) { updateStats(); return; }
+            const shrink = Number($("tx-shrink").value);
+            if (/^image\//.test(f.type) && shrink > 0) {
+              const s = await shrinkImage(f, shrink);
+              if (seq !== prepSeq) return;
+              if (s && s.size < f.size) f = s;
+            }
+            raw = new Uint8Array(await f.arrayBuffer());
+            meta = { isFile: true, name: f.name, mime: f.type || "application/octet-stream" };
+          }
+          if (seq !== prepSeq) return;
+          const r = await P.buildStream(raw, meta);
+          if (seq !== prepSeq) return;
+          tx.prepared = { stream: r.stream, rawLength: r.rawLength, compressed: r.compressed, meta };
+        } catch (e) {
+          $("tx-err").textContent = "準備に失敗: " + (e.message || e);
+        }
+        updateStats();
+      }
+
+      function currentChunkLen() {
+        return qrCapacity(Number($("tx-ver").value), $("tx-ecl").value) - P.HEADER;
+      }
+      function updateStats() {
+        const p = tx.prepared;
+        const fps = Number($("tx-fps").value);
+        $("tx-start").textContent = "送信をはじめる";
+        if (!p) {
+          ["st-size", "st-comp", "st-frames", "st-time"].forEach(id => $(id).textContent = "—");
+          $("tx-start").disabled = true;
+          return;
+        }
+        const chunk = currentChunkLen();
+        const frames = Math.max(1, Math.ceil(p.stream.length / chunk));
+        $("st-size").textContent = fmtBytes(p.rawLength);
+        $("st-comp").textContent = p.compressed ? fmtBytes(p.stream.length) + "（" + Math.round(100 * p.stream.length / Math.max(1, p.rawLength)) + "%）" : "圧縮なし";
+        $("st-frames").textContent = frames + " 枚（1 枚 " + chunk + " B）";
+        $("st-time").textContent = "約 " + fmtTime(frames / fps) + "（" + fmtBytes(Math.round(chunk * fps)) + "/秒）";
+        const tooMany = frames > 65535;
+        $("tx-err").textContent = tooMany ? "データが大きすぎます（QR " + frames + " 枚）。写真を縮小するか、分けて送ってください。" : "";
+        $("tx-start").disabled = tooMany;
+      }
+
+      $("tx-start").addEventListener("click", startSending);
+      $("tx-pause").addEventListener("click", () => {
+        tx.paused = !tx.paused;
+        $("tx-pause").textContent = tx.paused ? "再開" : "一時停止";
+        if (!tx.paused) tickSend();
+      });
+      $("tx-stop").addEventListener("click", stopSending);
+
+      function startSending() {
+        const p = tx.prepared; if (!p) return;
+        tx.version = Number($("tx-ver").value); tx.ecl = $("tx-ecl").value;
+        const sid = (crypto.getRandomValues ? crypto.getRandomValues(new Uint16Array(1))[0] : (Math.random() * 65536) | 0);
+        try {
+          tx.frames = P.splitFrames(p.stream, currentChunkLen(), sid);
+        } catch (e) { $("tx-err").textContent = String(e.message || e); return; }
+        tx.matrices = new Array(tx.frames.length).fill(null);
+        tx.idx = 0; tx.loop = 1; tx.running = true; tx.paused = false; tx.startedAt = Date.now();
+        $("tx-total").textContent = tx.frames.length;
+        $("tx-pause").textContent = "一時停止";
+        $("tx-screen").classList.add("on");
+        keepAwake(true);
+        layoutSendCanvas();
+        tickSend();
+        clearInterval(tx.elapsedTimer);
+        tx.elapsedTimer = setInterval(() => { $("tx-elapsed").textContent = fmtTime((Date.now() - tx.startedAt) / 1000); }, 1000);
+      }
+      function stopSending() {
+        tx.running = false;
+        clearTimeout(tx.timer); clearInterval(tx.elapsedTimer);
+        $("tx-screen").classList.remove("on");
+        if (!rx.stream) keepAwake(false);
+      }
+      let sendPx = 300;
+      function layoutSendCanvas() {
+        const wrap = $("tx-wrap");
+        const r = wrap.getBoundingClientRect();
+        sendPx = Math.max(120, Math.floor(Math.min(r.width, r.height) * 0.96));
+        const c = $("tx-canvas");
+        c.style.width = c.style.height = "";
+      }
+      window.addEventListener("resize", () => { if (tx.running) { layoutSendCanvas(); showFrame(tx.idx); } });
+
+      function matrixFor(i) {
+        if (!tx.matrices[i]) tx.matrices[i] = qrEncodeBytes(tx.frames[i], tx.version, tx.ecl, i % 8);
+        return tx.matrices[i];
+      }
+      function showFrame(i) {
+        drawMatrix($("tx-canvas"), matrixFor(i), sendPx);
+        $("tx-idx").textContent = i + 1;
+        $("tx-loop").textContent = tx.loop;
+        $("tx-prog").firstElementChild.style.width = (100 * (i + 1) / tx.frames.length) + "%";
+      }
+      function tickSend() {
+        if (!tx.running || tx.paused) return;
+        showFrame(tx.idx);
+        tx.idx++;
+        if (tx.idx >= tx.frames.length) { tx.idx = 0; tx.loop++; }
+        // 相手の解析周期と同期して同じ枚を取りこぼし続けないよう、間隔を少し揺らす
+        const base = 1000 / Number($("tx-fps").value);
+        const jitter = base * (Math.random() * 0.3 - 0.15);
+        tx.timer = setTimeout(tickSend, base + jitter);
+      }
+
+      // ══════════════════════════════════════════════
+      //  受け取る
+      // ══════════════════════════════════════════════
+      const rx = { stream: null, timer: 0, busy: false, receiver: new P.Receiver(), lastHit: 0, decodeLongSide: 640, result: null, frameCount: 0, decMs: 0 };
+      const video = $("rx-video");
+      const cap = document.createElement("canvas");
+      const cctx = cap.getContext("2d", { willReadFrequently: true });
+
+      // ── デコーダ Worker（BarcodeTool と同じ方式: <script id="dec-core-src"> を流し込む）──
+      let worker = null, workerDead = false, workerSeq = 0;
+      const workerCbs = new Map();
+      function getWorker() {
+        if (worker || workerDead) return worker;
+        const el = $("dec-core-src");
+        if (!el || typeof Worker === "undefined") { workerDead = true; return null; }
+        try {
+          const src = el.textContent +
+            "\nself.onmessage = function (e) {\n" +
+            "  var m = e.data, t0 = Date.now(), res;\n" +
+            "  try { res = BarcodeDecoder.decodeImage({ data: new Uint8ClampedArray(m.buf), width: m.width, height: m.height }, m.opts); }\n" +
+            "  catch (err) { res = { results: [], log: ['exception: ' + err.message] }; }\n" +
+            "  res.bits = null;\n" +
+            "  self.postMessage({ id: m.id, res: res, ms: Date.now() - t0 });\n" +
+            "};\n";
+          const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+          worker = new Worker(url);
+          URL.revokeObjectURL(url);
+          worker.onmessage = e => { const cb = workerCbs.get(e.data.id); if (cb) { workerCbs.delete(e.data.id); cb(e.data.res, e.data.ms); } };
+          worker.onerror = () => killWorker();
+        } catch (e) { worker = null; workerDead = true; }
+        return worker;
+      }
+      function killWorker() {
+        workerDead = true;
+        if (worker) { try { worker.terminate(); } catch (e) { } worker = null; }
+        const cbs = [...workerCbs.values()]; workerCbs.clear();
+        cbs.forEach(cb => cb(null, 0));
+      }
+      function decodeSync(frame, opts) {
+        const t0 = performance.now();
+        let res;
+        try { res = BarcodeDecoder.decodeImage(frame, opts); } catch (e) { res = { results: [] }; }
+        return { res, ms: performance.now() - t0 };
+      }
+      function decodeFrame(frame, opts, cb) {
+        const w = getWorker();
+        if (!w) { const r = decodeSync(frame, opts); cb(r.res, r.ms); return; }
+        const id = ++workerSeq;
+        let done = false;
+        const timer = setTimeout(() => { if (done) return; done = true; workerCbs.delete(id); killWorker(); cb(null, 0); }, 8000);
+        workerCbs.set(id, (res, ms) => { if (done) return; done = true; clearTimeout(timer); cb(res, ms); });
+        try {
+          w.postMessage({ id, buf: frame.data.buffer, width: frame.width, height: frame.height, opts }, [frame.data.buffer]);
+        } catch (e) {
+          done = true; clearTimeout(timer); workerCbs.delete(id); killWorker();
+          const r = decodeSync(frame, opts); cb(r.res, r.ms);
+        }
+      }
+
+      $("rx-start").addEventListener("click", startCamera);
+      $("rx-stop").addEventListener("click", () => { stopCamera(); $("rx-msg").textContent = "停止しました"; });
+      $("rs-again").addEventListener("click", () => { resetReceive(); startCamera(); });
+
+      async function startCamera() {
+        if (rx.stream) return;
+        resetReceive();
+        try {
+          rx.stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+            audio: false
+          });
+        } catch (e1) {
+          try { rx.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+          catch (e2) { $("rx-err").textContent = "カメラを起動できません: " + (e2.name || e2) + "（HTTPS で開いているか、カメラの許可を確認してください）"; return; }
+        }
+        const track = rx.stream.getVideoTracks()[0];
+        if (track && track.applyConstraints) { try { await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) { } }
+        video.srcObject = rx.stream;
+        try { await video.play(); } catch (e) { }
+        $("rx-start").disabled = true; $("rx-stop").disabled = false;
+        $("rx-msg").textContent = "相手の画面の QR を枠に入れてください";
+        keepAwake(true);
+        getWorker();
+        rx.busy = false;
+        pump();
+      }
+      function stopCamera() {
+        clearTimeout(rx.timer); rx.timer = 0;
+        if (rx.stream) { rx.stream.getTracks().forEach(t => { try { t.stop(); } catch (e) { } }); rx.stream = null; }
+        video.srcObject = null;
+        $("rx-start").disabled = false; $("rx-stop").disabled = true;
+        if (!tx.running) keepAwake(false);
+      }
+      function resetReceive() {
+        rx.receiver.reset(); rx.result = null; rx.frameCount = 0;
+        $("rx-result").classList.remove("on"); $("rx-err").textContent = "";
+        $("rx-grid").innerHTML = ""; $("rx-prog").firstElementChild.style.width = "0";
+        $("rx-frame").classList.remove("hit");
+        $("rx-img").style.display = "none"; $("rx-img").src = "";
+        $("rx-text").style.display = "none";
+        if (rx.result && rx.result.url) URL.revokeObjectURL(rx.result.url);
+      }
+
+      /** カメラ 1 フレームを解析 → 受信器へ。終わったら次を予約 */
+      function pump() {
+        if (!rx.stream) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh || rx.busy) { rx.timer = setTimeout(pump, 40); return; }
+        // 中央の正方形（枠の少し外側まで）だけを切り出して解析。端の景色を捨てて速くする
+        const side = Math.round(Math.min(vw, vh) * 0.9);
+        const sx = Math.round((vw - side) / 2), sy = Math.round((vh - side) / 2);
+        const k = Math.min(1, rx.decodeLongSide / side);
+        const fw = Math.max(1, Math.round(side * k));
+        if (cap.width !== fw || cap.height !== fw) { cap.width = fw; cap.height = fw; }
+        cctx.drawImage(video, sx, sy, side, side, 0, 0, fw, fw);
+        const frame = cctx.getImageData(0, 0, fw, fw);
+        rx.busy = true;
+        decodeFrame(frame, { variants: ["hybrid"], maxCodes: 1 }, (res, ms) => {
+          rx.busy = false;
+          if (!rx.stream) return;
+          rx.decMs = ms;
+          // 解析が重い端末では解像度を落とす（1 枚 220ms を超えたら）
+          if (ms > 220 && rx.decodeLongSide > 400) rx.decodeLongSide -= 80;
+          else if (ms < 80 && rx.decodeLongSide < 800) rx.decodeLongSide += 40;
+          if (res) handleDecode(res);
+          rx.timer = setTimeout(pump, 0);
+        });
+      }
+
+      function handleDecode(res) {
+        const hits = (res.results || []).filter(r => r.kind === "qr" && r.bytes);
+        let hit = false;
+        for (const r of hits) {
+          const f = P.parseFrame(r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes));
+          if (!f) continue;
+          hit = true;
+          onFrame(f);
+        }
+        if (hit) rx.lastHit = Date.now();
+        $("rx-frame").classList.toggle("hit", Date.now() - rx.lastHit < 600);
+      }
+      function onFrame(f) {
+        const before = rx.receiver.total;
+        const st = rx.receiver.feed(f);
+        if (!st.accepted) return;
+        if (rx.receiver.total !== before || $("rx-grid").children.length !== rx.receiver.total) buildGrid(rx.receiver.total);
+        if (!st.duplicate) markGrid(st.idx);
+        updateRxStatus();
+        if (st.complete) finishReceive();
+      }
+      function buildGrid(total) {
+        const g = $("rx-grid");
+        g.innerHTML = "";
+        if (total > 600) { g.style.display = "none"; return; }
+        g.style.display = "";
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < total; i++) frag.appendChild(document.createElement("i"));
+        g.appendChild(frag);
+      }
+      function markGrid(i) { const c = $("rx-grid").children[i]; if (c) c.classList.add("ok"); }
+      function updateRxStatus() {
+        const R = rx.receiver;
+        const pct = R.total ? Math.round(100 * R.got / R.total) : 0;
+        $("rx-prog").firstElementChild.style.width = pct + "%";
+        const el = (Date.now() - R.startedAt) / 1000;
+        const rate = el > 0.5 ? R.got / el : 0;
+        const remain = rate > 0 ? (R.total - R.got) / rate : 0;
+        $("rx-msg").innerHTML = "<b>" + R.got + "</b> / " + R.total + " 枚（" + pct + "%）" +
+          (R.got < R.total && rate > 0 ? " ・ 残り約 " + fmtTime(remain) : "") +
+          (rx.decMs ? " ・ 解析 " + Math.round(rx.decMs) + "ms" : "");
+      }
+
+      async function finishReceive() {
+        const R = rx.receiver;
+        const elapsed = (Date.now() - R.startedAt) / 1000;
+        const stream = R.assemble();
+        stopCamera();
+        const r = await P.parseStream(stream);
+        if (!r.ok) {
+          $("rx-err").textContent = "復元できませんでした: " + r.error + "。もう一度受け取ってください。";
+          $("rx-msg").textContent = "失敗";
+          R.reset();
+          return;
+        }
+        beep();
+        rx.result = r;
+        $("rs-kind").textContent = r.isFile ? (r.mime || "ファイル") : "テキスト";
+        $("rs-size").textContent = fmtBytes(r.data.length);
+        $("rs-time").textContent = fmtTime(elapsed) + "（" + fmtBytes(Math.round(stream.length / Math.max(0.1, elapsed))) + "/秒）";
+        $("rs-frames").textContent = R.total + " 枚";
+        const blob = new Blob([r.data], { type: r.isFile ? (r.mime || "application/octet-stream") : "text/plain;charset=utf-8" });
+        const name = r.isFile ? (r.name || "received.bin") : ("received-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".txt");
+        r.url = URL.createObjectURL(blob); r.blob = blob; r.fileName = name;
+        const dl = $("rs-download"); dl.href = r.url; dl.download = name;
+        if (r.isFile) {
+          $("rx-text").style.display = "none"; $("rs-copy").style.display = "none";
+          if (/^image\//.test(r.mime)) { $("rx-img").src = r.url; $("rx-img").style.display = "block"; }
+        } else {
+          r.text = new TextDecoder().decode(r.data);
+          $("rx-text").value = r.text; $("rx-text").style.display = ""; $("rs-copy").style.display = "";
+        }
+        $("rx-result").classList.add("on");
+        $("rx-msg").textContent = "完了";
+        $("rx-result").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      $("rs-copy").addEventListener("click", async () => {
+        const r = rx.result; if (!r || r.isFile) return;
+        try { await navigator.clipboard.writeText(r.text); toast("コピーしました"); }
+        catch (e) { $("rx-text").select(); try { document.execCommand("copy"); toast("コピーしました"); } catch (e2) { toast("コピーできません", true); } }
+      });
+      $("rs-share").addEventListener("click", async () => {
+        const r = rx.result; if (!r) return;
+        try {
+          const file = new File([r.blob], r.fileName, { type: r.blob.type });
+          if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: r.fileName });
+          } else if (navigator.share && !r.isFile) {
+            await navigator.share({ text: r.text });
+          } else {
+            $("rs-download").click();
+          }
+        } catch (e) { /* キャンセル */ }
+      });
+
+      // 完了音（AudioContext はユーザー操作後なら鳴らせる）
+      function beep() {
+        try {
+          const ac = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ac.createOscillator(), g = ac.createGain();
+          o.type = "sine"; o.frequency.value = 880; g.gain.value = 0.08;
+          o.connect(g); g.connect(ac.destination);
+          o.start(); o.frequency.setValueAtTime(1320, ac.currentTime + 0.12);
+          o.stop(ac.currentTime + 0.25);
+          setTimeout(() => ac.close(), 500);
+        } catch (e) { }
+      }
+
+      // ── URL の ?text=… で送信テキストを事前入力（ショートカット連携用）──
+      try {
+        const q = new URLSearchParams(location.search);
+        if (q.get("tab") === "rx") switchTab("rx");
+        if (q.get("text")) { $("tx-text").value = q.get("text"); schedulePrepare(); }
+      } catch (e) { }
+
+      // ── テスト用フック（ブラウザ自動テストから直接叩く）──
+      window.QRT = {
+        proto: P, qrCapacity, qrEncodeBytes, drawMatrix,
+        tx, rx,
+        prepare, startSending, stopSending, showFrame,
+        feedImageData(imageData) { return new Promise(res => decodeFrame(imageData, { variants: ["hybrid"], maxCodes: 1 }, r => { if (r) handleDecode(r); res(r); })); },
+        resetReceive
+      };
+    })();
+  </script>
+</body>
+</html>
