@@ -17,7 +17,8 @@
     "copy": "npm run build && npx cap copy ios",
     "build:qrt": "node scripts/build-qrtransfer.mjs",
     "test:qrt": "node scripts/qrtransfer-test.mjs",
-    "test:qrt:browser": "node scripts/qrtransfer-browser.mjs"
+    "test:qrt:browser": "node scripts/qrtransfer-browser.mjs",
+    "test:tools:browser": "node scripts/tools-browser.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

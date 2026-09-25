@@ -22,6 +22,16 @@
 文章・URL・ファイル・写真（自動縮小あり）を送れます。「中」設定で約 1.4 KB/秒（短文なら数秒、縮小した写真で 30 秒〜1 分）。
 QR の生成・読み取りは BarcodeTool と同じ自前エンジンで、`QRTransfer.html` は `npm run build:qrt` が本体から抜き出して合成します。
 
+### 📱 iPhone 小物ツール（それぞれ単一 HTML）
+
+| ツール | 開く | できること |
+|---|---|---|
+| 📇 **名刺スキャン** | <https://ksaga115.github.io/BarcodeTool/Meishi.html> | 名刺を撮ると Claude の画像認識で姓名・ふりがな・会社・部署・役職・電話・メール・住所を読み取り、確認して **.vcf で iPhone の連絡先に追加**。履歴は端末内、まとめて書き出し可 |
+| 🔢 **ナンプレ解き** | <https://ksaga115.github.io/BarcodeTool/Numpre.html> | 新聞や本のナンプレを撮ると盤面を読み取り、**「次の 1 手」を理由つきで**表示。答え合わせ・全解答・唯一解チェック。解くのは端末内（手入力なら通信ゼロ） |
+| 🥽 **3D 写真** | <https://ksaga115.github.io/BarcodeTool/Photo3D.html> | iPhone 2 台を横に並べ、親機の「ピーッ」を子機のマイクが聞いて**同時シャッター**。2 枚から「ぐらぐら GIF」「赤青メガネ用」「平行法/交差法」を作る。1 台で 2 回撮る方式も可。通信ゼロ・GIF エンコーダも自前 |
+
+名刺スキャンとナンプレ解きの写真読み取りは、自分の Anthropic API キーを設定画面に入れて使います（キーは端末内にだけ保存、1 回数円）。
+
 ---
 
 ## 機能
@@ -42,6 +52,9 @@ QR の生成・読み取りは BarcodeTool と同じ自前エンジンで、`QRT
 | [`BarcodeTool.html`](./BarcodeTool.html) | **アプリ本体**。これ 1 ファイルで完結（HTML + CSS + JS） |
 | [`QRTransfer.html`](./QRTransfer.html) | **QR転送**（生成物・単一ファイル）。`qrtransfer/template.html` に本体の QR エンコーダとデコーダコアを注入したもの |
 | [`qrtransfer/template.html`](./qrtransfer/template.html) | QR転送の原本（UI・転送プロトコル・送受信ループ）。QR エンジン部分は目印だけ置いてある |
+| [`Meishi.html`](./Meishi.html) | **名刺スキャン**。Claude 画像認識 → vCard 3.0（`X-PHONETIC-*` でふりがな対応）→ 連絡先へ。履歴は localStorage |
+| [`Numpre.html`](./Numpre.html) | **ナンプレ解き**。`<script id="sudoku-src">` に解法エンジン（ネイキッド/ヒドゥンシングル、ロックド候補、ネイキッド/ヒドゥンペア、MRV バックトラック） |
+| [`Photo3D.html`](./Photo3D.html) | **3D 写真**。音の合図（2.4 kHz）による 2 台同期、SAD による自動位置合わせ、`<script id="gif-src">` にメディアンカット量子化 + LZW の GIF エンコーダ |
 | [`index.html`](./index.html) | GitHub Pages 用。`BarcodeTool.html` へリダイレクトするだけ |
 | [`app.json`](./app.json) | アプリ名・バージョン・起動ファイルのメタ情報 |
 | [`.gitattributes`](./.gitattributes) | 改行を LF に固定（配布 HTML のバイト列を保つ） |
@@ -79,6 +92,7 @@ QR の生成・読み取りは BarcodeTool と同じ自前エンジンで、`QRT
 | [`scripts/build-qrtransfer.mjs`](./scripts/build-qrtransfer.mjs) | `npm run build:qrt` | `BarcodeTool.html` から QR エンコーダとデコーダコアを抜き出して `qrtransfer/template.html` に注入し、`QRTransfer.html` を生成 |
 | [`scripts/qrtransfer-test.mjs`](./scripts/qrtransfer-test.mjs) | `npm run test:qrt` | QR転送の検証（jsdom）。プロトコルの往復、順不同・重複・別セッション混入、QR 行列→画素→デコード→復元の一致 |
 | [`scripts/qrtransfer-browser.mjs`](./scripts/qrtransfer-browser.mjs) | `npm run test:qrt:browser` | 実ブラウザ（Chromium + Playwright）で送信画面のキャンバスを受信側に流し、テキストと写真の転送を確認。スクリーンショットも保存 |
+| [`scripts/tools-browser.mjs`](./scripts/tools-browser.mjs) | `npm run test:tools:browser` | 名刺スキャン・ナンプレ解き・3D 写真を Chromium で動かす（Claude API はモック）。vCard の形式、解法の進行、GIF のデコード可否まで確認 |
 | [`scripts/build-www.mjs`](./scripts/build-www.mjs) | `npm run build` | 本体を改変せず、ネイティブ用スクリプトを注入した `www/index.html` を生成 |
 | [`scripts/apply-ios-patch.mjs`](./scripts/apply-ios-patch.mjs) | `npm run patch:ios` | `ios-patch/` を生成済み iOS プロジェクトへ適用 |
 | [`scripts/domcheck.mjs`](./scripts/domcheck.mjs) | `npm run domcheck` | jsdom でコードバトル画面を実際に動かし、例外や DOM 崩れを検出 |

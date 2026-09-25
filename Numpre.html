@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ナンプレ解き">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>ナンプレ解き — 撮って、1 手ずつ</title>
+  <!--
+    ナンプレ解き (Numpre.html)
+    新聞や本のナンプレを撮ると Claude の画像認識で 81 マスを読み取り、端末内の解法エンジンが
+    「次の 1 手」を理由付きで示す。全解答・唯一解チェック・自分で解いて答え合わせもできる。
+    読み取りだけ API を使い、解くのは端末内で完結。手入力なら通信ゼロ。
+  -->
+  <style>
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+      --blue: #1e66f5; --blue-light: #89b4fa; --red: #f38ba8; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387; --mauve: #cba6f7; --sky: #89dceb;
+      --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body { background: var(--base); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; overflow: hidden; padding-top: var(--sat); user-select: none; -webkit-user-select: none; }
+    header { background: var(--mantle); border-bottom: 1px solid var(--surface0); padding: 10px 16px; flex-shrink: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    h1 { font-size: 17px; font-weight: 700; color: var(--blue-light); }
+    .hd-desc { font-size: 12px; color: var(--overlay); }
+    .hd-link { background: none; border: none; color: var(--blue-light); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: inherit; padding: 4px 0; white-space: nowrap; }
+    main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 12px calc(24px + var(--sab)); }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    button, .btn { font-family: inherit; font-size: 15px; font-weight: 600; border-radius: 10px; border: 1px solid var(--surface1); background: var(--surface0); color: var(--text); min-height: 44px; padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: default; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .danger { color: var(--red); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 auto; }
+    .card { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 12px; margin-top: 10px; }
+    .hint { font-size: 12px; color: var(--overlay); margin-top: 6px; }
+    .err { color: var(--red); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+    .spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--surface2); border-top-color: var(--blue-light); border-radius: 50%; animation: sp .8s linear infinite; vertical-align: middle; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    input[type=password], input[type=text] { width: 100%; font-family: inherit; font-size: 16px; color: var(--text); background: var(--base); border: 1px solid var(--surface1); border-radius: 8px; padding: 8px 10px; outline: none; }
+
+    /* ── 盤面 ── */
+    #board { display: grid; grid-template-columns: repeat(9, 1fr); width: 100%; max-width: 520px; aspect-ratio: 1; margin: 0 auto; background: var(--surface2); border: 3px solid var(--subtext); border-radius: 6px; overflow: hidden; }
+    .cell { position: relative; background: var(--mantle); display: flex; align-items: center; justify-content: center; font-size: clamp(16px, 5.4vw, 30px); font-weight: 600; color: var(--sky); cursor: pointer; border: 1px solid var(--surface0); }
+    .cell.given { color: var(--text); font-weight: 700; background: #232336; }
+    .cell.solved { color: var(--green); }
+    .cell.user { color: var(--sky); }
+    .cell.wrong { color: var(--red); }
+    .cell.sel { outline: 3px solid var(--blue-light); outline-offset: -3px; z-index: 1; }
+    .cell.peer { background: #2a2a40; }
+    .cell.same { background: #3b3b5c; }
+    .cell.hint { background: #4a4a2a; outline: 3px solid var(--yellow); outline-offset: -3px; z-index: 1; }
+    .cell.unit { background: #34342e; }
+    .cell.conflict { color: var(--red); }
+    .cell:nth-child(9n+3), .cell:nth-child(9n+6) { border-right: 2px solid var(--subtext); }
+    .cell:nth-child(n+19):nth-child(-n+27), .cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid var(--subtext); }
+    .cand { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(3, 1fr); font-size: clamp(7px, 2vw, 11px); font-weight: 400; color: var(--overlay); line-height: 1; padding: 2px; }
+    .cand span { display: flex; align-items: center; justify-content: center; }
+    #pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; max-width: 520px; margin-left: auto; margin-right: auto; }
+    #pad button { min-height: 48px; font-size: 20px; }
+    .seg { display: flex; border: 1px solid var(--surface1); border-radius: 10px; overflow: hidden; margin-top: 10px; }
+    .seg button { flex: 1; border: none; border-radius: 0; background: none; font-weight: 500; }
+    .seg button.on { background: var(--surface1); color: var(--blue-light); font-weight: 700; }
+    #explain { font-size: 14px; min-height: 24px; margin-top: 8px; }
+    #explain b { color: var(--yellow); }
+    #explain .pre { color: var(--subtext); font-size: 13px; margin-top: 4px; }
+    .stat { font-size: 13px; color: var(--subtext); }
+    .stat b { color: var(--yellow); font-weight: 600; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 40; }
+    .modal.on { display: flex; }
+    .sheet { background: var(--mantle); border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + var(--sab)); max-width: 720px; width: 100%; max-height: 88vh; overflow-y: auto; user-select: text; -webkit-user-select: text; }
+    .sheet h2 { font-size: 16px; margin-bottom: 8px; color: var(--blue-light); }
+    .sheet p, .sheet li { font-size: 14px; color: var(--subtext); margin-bottom: 6px; }
+    .sheet ol { padding-left: 20px; }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--subtext); margin-bottom: 3px; }
+    @media (min-width: 720px) { .modal { align-items: center; } .sheet { border-radius: 16px; } }
+    .toast { position: fixed; left: 50%; bottom: calc(24px + var(--sab)); transform: translateX(-50%); background: var(--surface1); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
+    .toast.show { opacity: 1; }
+    .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--surface0); color: var(--subtext); margin-left: 6px; }
+    .badge.ok { color: var(--green); }
+    #photo-preview { max-width: 100%; max-height: 40vh; border-radius: 8px; display: none; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>ナンプレ解き</h1><div class="hd-desc">撮って、1 手ずつ。理由つき</div></div>
+    <div>
+      <button class="hd-link" id="btn-help" type="button">つかいかた</button>
+      <button class="hd-link" id="btn-settings" type="button">設定<span class="badge" id="key-badge">未設定</span></button>
+    </div>
+  </header>
+
+  <main><div class="wrap">
+    <section class="card" id="input-card">
+      <div class="row">
+        <button type="button" class="primary" id="btn-camera">📷 問題を撮る</button>
+        <button type="button" id="btn-photo">写真から</button>
+        <button type="button" id="btn-sample">サンプル</button>
+      </div>
+      <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="file-photo" accept="image/*" style="display:none">
+      <img id="photo-preview" alt="">
+      <div id="reading" style="display:none; margin-top:8px"><span class="spin"></span> 盤面を読み取り中… <span id="reading-ms"></span></div>
+      <div class="err" id="input-err"></div>
+      <div class="hint">読み取ったあと、間違いがあればマスをタップして直せます。手で入力するなら、そのままマスをタップしてください。</div>
+    </section>
+
+    <section class="card">
+      <div class="seg" id="mode" style="margin-top:0">
+        <button type="button" class="on" data-mode="edit">問題を入力</button>
+        <button type="button" data-mode="solve">解く</button>
+      </div>
+      <div id="board" style="margin-top:10px"></div>
+      <div id="pad">
+        <button type="button" data-n="1">1</button><button type="button" data-n="2">2</button><button type="button" data-n="3">3</button><button type="button" data-n="4">4</button><button type="button" data-n="5">5</button>
+        <button type="button" data-n="6">6</button><button type="button" data-n="7">7</button><button type="button" data-n="8">8</button><button type="button" data-n="9">9</button><button type="button" data-n="0">✕</button>
+      </div>
+      <div class="stat" id="stat" style="margin-top:8px"></div>
+      <div class="err" id="board-err"></div>
+
+      <div id="edit-tools">
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="primary" id="btn-start">この問題を解く →</button>
+          <button type="button" class="danger" id="btn-clear">全消去</button>
+        </div>
+      </div>
+      <div id="solve-tools" style="display:none">
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="primary" id="btn-hint">次の 1 手</button>
+          <button type="button" id="btn-check">答え合わせ</button>
+          <button type="button" id="btn-all">全部見る</button>
+          <button type="button" id="btn-reset">最初から</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="btn-cands">候補を表示</button>
+        </div>
+        <div id="explain"></div>
+      </div>
+    </section>
+  </div></main>
+
+  <div class="modal" id="settings">
+    <div class="sheet">
+      <h2>設定</h2>
+      <p>写真の読み取りだけ Claude の画像認識を使います（手入力なら不要）。</p>
+      <div class="field"><label>Anthropic API キー</label><input type="password" id="api-key" placeholder="sk-ant-…" autocapitalize="off" autocomplete="off"></div>
+      <p>キーはこの端末の中にだけ保存され、問題の写真と一緒に Anthropic の API へ送られるだけです。1 回の読み取りは数円程度です。</p>
+      <div class="field"><label>モデル</label><input type="text" id="api-model" value="claude-opus-5" autocapitalize="off"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="primary" id="btn-save-key">保存</button>
+        <button type="button" id="btn-close-settings">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="help">
+    <div class="sheet">
+      <h2>つかいかた</h2>
+      <ol>
+        <li>「問題を撮る」で新聞や本のナンプレを撮る（真上から、9×9 全体が入るように）。手で入れるならマスをタップ。</li>
+        <li>読み取り結果を確認して「この問題を解く」。</li>
+        <li>「次の 1 手」を押すたびに、確定できるマスが 1 つ埋まり、理由が表示されます。自分で数字を入れて「答え合わせ」もできます。</li>
+      </ol>
+      <h2>理由に出てくる言葉</h2>
+      <p><b>ネイキッドシングル</b>: そのマスに入れられる数字が 1 つしか残っていない。</p>
+      <p><b>ヒドゥンシングル</b>: 行・列・ブロックの中で、その数字が入れる場所が 1 つしかない。</p>
+      <p><b>ロックド候補</b>: あるブロック内で数字の候補が 1 行（列）に並んでいるので、その行（列）の他のマスからは消せる。</p>
+      <p><b>ネイキッドペア</b>: 同じ 2 候補だけを持つマスが 2 つあるので、同じ行・列・ブロックの他のマスからその 2 数字を消せる。</p>
+      <p>これらで進めなくなったときは「仮置き（試行錯誤）が必要」と表示し、解答から 1 マスだけ教えます。</p>
+      <button type="button" id="btn-close-help" style="margin-top:12px; width:100%">閉じる</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ══════════ 解法エンジン（純粋関数・端末内） ══════════ -->
+  <script id="sudoku-src">
+    (function (global) {
+      "use strict";
+      const ROW = i => (i / 9) | 0, COL = i => i % 9, BOX = i => ((ROW(i) / 3) | 0) * 3 + ((COL(i) / 3) | 0);
+      const UNITS = [];   // 27 ユニット（行 0-8、列 9-17、ブロック 18-26）
+      for (let r = 0; r < 9; r++) UNITS.push(Array.from({ length: 9 }, (_, c) => r * 9 + c));
+      for (let c = 0; c < 9; c++) UNITS.push(Array.from({ length: 9 }, (_, r) => r * 9 + c));
+      for (let b = 0; b < 9; b++) UNITS.push(Array.from({ length: 9 }, (_, k) => (((b / 3) | 0) * 3 + ((k / 3) | 0)) * 9 + (b % 3) * 3 + (k % 3)));
+      const PEERS = Array.from({ length: 81 }, (_, i) => {
+        const s = new Set();
+        for (const u of UNITS) if (u.includes(i)) for (const j of u) if (j !== i) s.add(j);
+        return [...s];
+      });
+      const unitName = k => k < 9 ? (k + 1) + "行目" : k < 18 ? (k - 8) + "列目" : "ブロック" + (k - 17);
+      const cellName = i => "R" + (ROW(i) + 1) + "C" + (COL(i) + 1);
+
+      /** 文字列(81 桁、0 or . が空) → 数値配列 */
+      function parse(s) {
+        const t = String(s).replace(/[^0-9.]/g, "");
+        if (t.length !== 81) return null;
+        return [...t].map(ch => ch === "." ? 0 : Number(ch));
+      }
+      /** 矛盾しているマスの番号一覧 */
+      function conflicts(g) {
+        const bad = new Set();
+        for (const u of UNITS) {
+          const seen = {};
+          for (const i of u) if (g[i]) { if (seen[g[i]] !== undefined) { bad.add(i); bad.add(seen[g[i]]); } else seen[g[i]] = i; }
+        }
+        return [...bad];
+      }
+      /** 候補（ビットマスク）を計算。bit n (1..9) */
+      function candidates(g) {
+        const cand = new Array(81).fill(0);
+        for (let i = 0; i < 81; i++) {
+          if (g[i]) continue;
+          let m = 0x3FE;
+          for (const p of PEERS[i]) if (g[p]) m &= ~(1 << g[p]);
+          cand[i] = m;
+        }
+        return cand;
+      }
+      const bits = m => { const a = []; for (let n = 1; n <= 9; n++) if (m & (1 << n)) a.push(n); return a; };
+      const popcount = m => { let c = 0; while (m) { m &= m - 1; c++; } return c; };
+
+      /** バックトラック（MRV）。limit 個まで解を数える。戻り値 { count, solution } */
+      function solve(g, limit) {
+        limit = limit || 1;
+        const grid = g.slice();
+        let count = 0, solution = null;
+        function rec() {
+          let best = -1, bestM = 0, bestC = 10;
+          for (let i = 0; i < 81; i++) {
+            if (grid[i]) continue;
+            let m = 0x3FE;
+            for (const p of PEERS[i]) if (grid[p]) m &= ~(1 << grid[p]);
+            const c = popcount(m);
+            if (c === 0) return false;
+            if (c < bestC) { bestC = c; best = i; bestM = m; if (c === 1) break; }
+          }
+          if (best < 0) { count++; if (!solution) solution = grid.slice(); return count >= limit; }
+          for (const n of bits(bestM)) {
+            grid[best] = n;
+            if (rec()) return true;
+          }
+          grid[best] = 0;
+          return false;
+        }
+        rec();
+        return { count, solution };
+      }
+
+      /**
+       * 次の 1 手を人間向けの手筋で求める。
+       * 戻り値 { cell, digit, technique, reason, eliminations:[{cells,digit,reason}], guessed }
+       * 手筋で置けない場合は solution を使って guessed:true で返す。
+       */
+      function nextStep(g, solution) {
+        const cand = candidates(g);
+        const elims = [];
+        // 手筋で候補を削りながら、置けるマスが出たら返す
+        for (let round = 0; round < 12; round++) {
+          // 1. ネイキッドシングル
+          for (let i = 0; i < 81; i++) if (!g[i] && popcount(cand[i]) === 1) {
+            const d = bits(cand[i])[0];
+            return { cell: i, digit: d, technique: "ネイキッドシングル", reason: cellName(i) + " に入れられる数字は " + d + " だけです（同じ行・列・ブロックで他の数字は使われています）。", eliminations: elims, guessed: false };
+          }
+          // 2. ヒドゥンシングル
+          for (let k = 0; k < 27; k++) {
+            const u = UNITS[k];
+            for (let d = 1; d <= 9; d++) {
+              const places = u.filter(i => !g[i] && (cand[i] & (1 << d)));
+              if (places.length === 1 && !u.some(i => g[i] === d)) {
+                return { cell: places[0], digit: d, technique: "ヒドゥンシングル", reason: unitName(k) + " で " + d + " が入れる場所は " + cellName(places[0]) + " だけです。", eliminations: elims, guessed: false };
+              }
+            }
+          }
+          // 3. ロックド候補（ブロック → 行/列、行/列 → ブロック）
+          let changed = false;
+          for (let b = 0; b < 9; b++) {
+            const u = UNITS[18 + b];
+            for (let d = 1; d <= 9; d++) {
+              const places = u.filter(i => !g[i] && (cand[i] & (1 << d)));
+              if (places.length < 2) continue;
+              const rows = new Set(places.map(ROW)), cols = new Set(places.map(COL));
+              if (rows.size === 1) {
+                const r = [...rows][0];
+                const targets = UNITS[r].filter(i => !u.includes(i) && !g[i] && (cand[i] & (1 << d)));
+                if (targets.length) { targets.forEach(i => cand[i] &= ~(1 << d)); changed = true; elims.push({ cells: targets, digit: d, reason: "ブロック" + (b + 1) + " の " + d + " は " + (r + 1) + "行目にしか入れないので、その行の他のマスから " + d + " を消せます（ロックド候補）。" }); }
+              }
+              if (cols.size === 1) {
+                const c = [...cols][0];
+                const targets = UNITS[9 + c].filter(i => !u.includes(i) && !g[i] && (cand[i] & (1 << d)));
+                if (targets.length) { targets.forEach(i => cand[i] &= ~(1 << d)); changed = true; elims.push({ cells: targets, digit: d, reason: "ブロック" + (b + 1) + " の " + d + " は " + (c + 1) + "列目にしか入れないので、その列の他のマスから " + d + " を消せます（ロックド候補）。" }); }
+              }
+            }
+          }
+          for (let k = 0; k < 18; k++) {
+            const u = UNITS[k];
+            for (let d = 1; d <= 9; d++) {
+              const places = u.filter(i => !g[i] && (cand[i] & (1 << d)));
+              if (places.length < 2) continue;
+              const boxes = new Set(places.map(BOX));
+              if (boxes.size === 1) {
+                const b = [...boxes][0];
+                const targets = UNITS[18 + b].filter(i => !u.includes(i) && !g[i] && (cand[i] & (1 << d)));
+                if (targets.length) { targets.forEach(i => cand[i] &= ~(1 << d)); changed = true; elims.push({ cells: targets, digit: d, reason: unitName(k) + " の " + d + " はブロック" + (b + 1) + " にしか入れないので、そのブロックの他のマスから " + d + " を消せます（ロックド候補）。" }); }
+              }
+            }
+          }
+          // 4. ネイキッドペア
+          for (let k = 0; k < 27; k++) {
+            const u = UNITS[k].filter(i => !g[i]);
+            for (let a = 0; a < u.length; a++) {
+              if (popcount(cand[u[a]]) !== 2) continue;
+              for (let b2 = a + 1; b2 < u.length; b2++) {
+                if (cand[u[b2]] !== cand[u[a]]) continue;
+                const m = cand[u[a]];
+                const targets = u.filter(i => i !== u[a] && i !== u[b2] && (cand[i] & m));
+                if (targets.length) { targets.forEach(i => cand[i] &= ~m); changed = true; elims.push({ cells: targets, digit: bits(m).join(""), reason: unitName(k) + " の " + cellName(u[a]) + " と " + cellName(u[b2]) + " は候補が {" + bits(m).join(",") + "} だけなので、他のマスからこの 2 つを消せます（ネイキッドペア）。" }); }
+              }
+            }
+          }
+          // 5. ヒドゥンペア
+          for (let k = 0; k < 27; k++) {
+            const u = UNITS[k].filter(i => !g[i]);
+            for (let d1 = 1; d1 <= 9; d1++) for (let d2 = d1 + 1; d2 <= 9; d2++) {
+              const m = (1 << d1) | (1 << d2);
+              const p1 = u.filter(i => cand[i] & (1 << d1)), p2 = u.filter(i => cand[i] & (1 << d2));
+              if (p1.length !== 2 || p2.length !== 2 || p1[0] !== p2[0] || p1[1] !== p2[1]) continue;
+              const targets = p1.filter(i => cand[i] & ~m);
+              if (targets.length) { targets.forEach(i => cand[i] &= m); changed = true; elims.push({ cells: targets, digit: d1 + "" + d2, reason: unitName(k) + " で " + d1 + " と " + d2 + " が入れるのは " + cellName(p1[0]) + " と " + cellName(p1[1]) + " だけなので、この 2 マスの他の候補を消せます（ヒドゥンペア）。" }); }
+            }
+          }
+          if (!changed) break;
+        }
+        // 手筋で詰まった → 解答から 1 マス（候補が最少のマス）
+        if (!solution) return null;
+        let best = -1, bestC = 10;
+        for (let i = 0; i < 81; i++) if (!g[i] && popcount(cand[i]) < bestC) { bestC = popcount(cand[i]); best = i; }
+        if (best < 0) return null;
+        return { cell: best, digit: solution[best], technique: "仮置きが必要", reason: "ここから先は基本手筋では進めません（試行錯誤が必要）。解答から 1 マス: " + cellName(best) + " は " + solution[best] + " です（候補は {" + bits(cand[best]).join(",") + "}）。", eliminations: elims, guessed: true };
+      }
+
+      global.Sudoku = { parse, conflicts, candidates, bits, solve, nextStep, UNITS, PEERS, cellName, unitName, ROW, COL, BOX };
+    })(typeof window !== "undefined" ? window : globalThis);
+  </script>
+
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      const S = window.Sudoku;
+      let toastTimer = 0;
+      function toast(msg, isErr) { const t = $("toast"); t.textContent = msg; t.style.color = isErr ? "var(--red)" : ""; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2400); }
+
+      // ── Claude API（ブラウザから直接。Meishi.html と同じ）──
+      const KEY_STORE = "claude_api_key", MODEL_STORE = "claude_model";
+      const Claude = {
+        get key() { try { return localStorage.getItem(KEY_STORE) || ""; } catch (e) { return ""; } },
+        set key(v) { try { localStorage.setItem(KEY_STORE, v); } catch (e) { } },
+        get model() { try { return localStorage.getItem(MODEL_STORE) || "claude-opus-5"; } catch (e) { return "claude-opus-5"; } },
+        set model(v) { try { localStorage.setItem(MODEL_STORE, v); } catch (e) { } },
+        endpoint: "https://api.anthropic.com/v1/messages",
+        async extract({ images, system, prompt, schema, maxTokens, effort }) {
+          if (!this.key) throw new Error("API キーが設定されていません（右上の「設定」）。手で入力することもできます。");
+          const content = images.map(im => ({ type: "image", source: { type: "base64", media_type: im.mediaType, data: im.base64 } }));
+          content.push({ type: "text", text: prompt });
+          const res = await fetch(this.endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-api-key": this.key, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01", "anthropic-dangerous-direct-browser-access": "true" },
+            body: JSON.stringify({ model: this.model, max_tokens: maxTokens || 2000, system, messages: [{ role: "user", content }], output_config: { effort: effort || "high", format: { type: "json_schema", schema } }, fallbacks: "default" })
+          });
+          if (!res.ok) {
+            let detail = ""; try { const j = await res.json(); detail = (j.error && j.error.message) || ""; } catch (e) { }
+            if (res.status === 401) throw new Error("API キーが無効です (401)");
+            throw new Error("API エラー " + res.status + (detail ? ": " + detail : ""));
+          }
+          const msg = await res.json();
+          if (msg.stop_reason === "refusal") throw new Error("読み取りが拒否されました");
+          const text = (msg.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+          try { return JSON.parse(text); } catch (e) { const m = text.match(/\{[\s\S]*\}/); if (m) return JSON.parse(m[0]); throw new Error("応答を JSON として読めませんでした"); }
+        }
+      };
+      function fileToImage(file, maxSide) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file); const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+            const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
+            const dataUrl = c.toDataURL("image/jpeg", 0.9);
+            resolve({ base64: dataUrl.slice(dataUrl.indexOf(",") + 1), mediaType: "image/jpeg", dataUrl });
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めません")); };
+          img.src = url;
+        });
+      }
+      function refreshBadge() { const b = $("key-badge"); if (Claude.key) { b.textContent = "設定済"; b.classList.add("ok"); } else { b.textContent = "未設定"; b.classList.remove("ok"); } }
+      $("btn-settings").addEventListener("click", () => { $("api-key").value = Claude.key; $("api-model").value = Claude.model; $("settings").classList.add("on"); });
+      $("btn-close-settings").addEventListener("click", () => $("settings").classList.remove("on"));
+      $("btn-save-key").addEventListener("click", () => { Claude.key = $("api-key").value.trim(); Claude.model = $("api-model").value.trim() || "claude-opus-5"; refreshBadge(); $("settings").classList.remove("on"); toast("保存しました"); });
+      $("btn-help").addEventListener("click", () => $("help").classList.add("on"));
+      $("btn-close-help").addEventListener("click", () => $("help").classList.remove("on"));
+      document.querySelectorAll(".modal").forEach(m => m.addEventListener("click", e => { if (e.target === m) m.classList.remove("on"); }));
+      refreshBadge();
+
+      // ══════════════════════════════════════════════
+      //  盤面の状態
+      // ══════════════════════════════════════════════
+      const st = {
+        mode: "edit",                   // edit | solve
+        given: new Array(81).fill(0),   // 問題
+        grid: new Array(81).fill(0),    // 現在の盤面（given + 埋めたもの）
+        who: new Array(81).fill(""),    // "given" | "solved" | "user"
+        solution: null, unique: null,
+        sel: -1, showCands: false, hint: null, checked: false
+      };
+      const board = $("board");
+      const cells = [];
+      for (let i = 0; i < 81; i++) {
+        const d = document.createElement("div"); d.className = "cell"; d.dataset.i = i;
+        d.addEventListener("click", () => select(i));
+        board.appendChild(d); cells.push(d);
+      }
+      function select(i) { st.sel = i; st.hint = null; render(); }
+      function render() {
+        const conf = new Set(S.conflicts(st.grid));
+        const cand = st.showCands && st.mode === "solve" ? S.candidates(st.grid) : null;
+        const hintUnit = st.hint ? new Set(hintUnitCells(st.hint)) : null;
+        const selVal = st.sel >= 0 ? st.grid[st.sel] : 0;
+        for (let i = 0; i < 81; i++) {
+          const c = cells[i], v = st.grid[i];
+          c.className = "cell";
+          if (st.who[i]) c.classList.add(st.who[i]);
+          if (conf.has(i)) c.classList.add("conflict");
+          if (st.checked && st.who[i] === "user" && st.solution && v && v !== st.solution[i]) c.classList.add("wrong");
+          if (st.sel === i) c.classList.add("sel");
+          else if (st.sel >= 0 && S.PEERS[st.sel].includes(i)) c.classList.add("peer");
+          if (selVal && v === selVal && i !== st.sel) c.classList.add("same");
+          if (hintUnit && hintUnit.has(i)) c.classList.add("unit");
+          if (st.hint && st.hint.cell === i) c.classList.add("hint");
+          if (v) { c.textContent = v; }
+          else if (cand) {
+            c.textContent = "";
+            const w = document.createElement("div"); w.className = "cand";
+            for (let n = 1; n <= 9; n++) { const s = document.createElement("span"); s.textContent = (cand[i] & (1 << n)) ? n : ""; w.appendChild(s); }
+            c.appendChild(w);
+          } else c.textContent = "";
+        }
+        const filled = st.grid.filter(Boolean).length, givens = st.given.filter(Boolean).length;
+        $("stat").innerHTML = st.mode === "edit"
+          ? "ヒント数 <b>" + givens + "</b> マス" + (conf.size ? "　<span style='color:var(--red)'>重複があります</span>" : "")
+          : "埋まった <b>" + filled + "</b> / 81" + (st.unique === false ? "　<span style='color:var(--peach)'>解が複数あります</span>" : "") + (st.unique === true ? "　唯一解" : "");
+        $("btn-cands").textContent = st.showCands ? "候補を隠す" : "候補を表示";
+      }
+      function hintUnitCells(h) {
+        // ヒントの根拠になるユニット（reason に含まれる名前から逆引き）
+        for (let k = 0; k < 27; k++) if (h.reason.startsWith(S.unitName(k) + " ")) return S.UNITS[k];
+        return S.PEERS[h.cell];
+      }
+      function setCell(i, n) {
+        if (st.mode === "edit") {
+          st.given[i] = n; st.grid[i] = n; st.who[i] = n ? "given" : "";
+        } else {
+          if (st.who[i] === "given") { toast("問題のマスは変えられません", true); return; }
+          st.grid[i] = n; st.who[i] = n ? "user" : "";
+        }
+        st.hint = null; $("explain").innerHTML = "";
+        render();
+      }
+      $("pad").addEventListener("click", e => {
+        const b = e.target.closest("button"); if (!b || st.sel < 0) { if (b) toast("マスを先にタップしてください"); return; }
+        setCell(st.sel, Number(b.dataset.n));
+      });
+      document.addEventListener("keydown", e => {
+        if (st.sel < 0) return;
+        if (/^[1-9]$/.test(e.key)) setCell(st.sel, Number(e.key));
+        else if (e.key === "Backspace" || e.key === "Delete" || e.key === "0") setCell(st.sel, 0);
+        else if (e.key === "ArrowLeft") select(Math.max(0, st.sel - 1));
+        else if (e.key === "ArrowRight") select(Math.min(80, st.sel + 1));
+        else if (e.key === "ArrowUp") select(Math.max(0, st.sel - 9));
+        else if (e.key === "ArrowDown") select(Math.min(80, st.sel + 9));
+      });
+
+      function setMode(m) {
+        st.mode = m;
+        [...$("mode").children].forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+        $("edit-tools").style.display = m === "edit" ? "" : "none";
+        $("solve-tools").style.display = m === "solve" ? "" : "none";
+        $("board-err").textContent = ""; st.hint = null; $("explain").innerHTML = "";
+        if (m === "edit") { st.grid = st.given.slice(); st.who = st.given.map(v => v ? "given" : ""); st.solution = null; st.unique = null; st.checked = false; }
+        render();
+      }
+      $("mode").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.mode === "solve") startSolve(); else setMode("edit"); });
+      $("btn-start").addEventListener("click", startSolve);
+      function startSolve() {
+        const givens = st.given.filter(Boolean).length;
+        if (givens < 17) { $("board-err").textContent = "ヒントが少なすぎます（" + givens + " マス）。問題を入力してください。"; return; }
+        if (S.conflicts(st.given).length) { $("board-err").textContent = "同じ行・列・ブロックに同じ数字があります（赤いマス）。直してください。"; return; }
+        const r = S.solve(st.given, 2);
+        if (r.count === 0) { $("board-err").textContent = "この問題には解がありません。読み取り間違いがないか確認してください。"; return; }
+        st.solution = r.solution; st.unique = r.count === 1;
+        setMode("solve");
+        if (!st.unique) toast("解が複数あります（読み取り漏れの可能性）", true);
+      }
+      $("btn-clear").addEventListener("click", () => { if (st.given.some(Boolean) && !confirm("盤面を全部消しますか？")) return; st.given.fill(0); st.grid.fill(0); st.who.fill(""); st.sel = -1; render(); });
+
+      // ── 解く ──
+      $("btn-hint").addEventListener("click", () => {
+        if (st.grid.every(Boolean)) { $("explain").innerHTML = "<b>完成です！</b>"; return; }
+        // 自分で入れた間違いがあると手筋が破綻するので先に知らせる
+        const wrong = st.grid.findIndex((v, i) => v && st.who[i] === "user" && st.solution && v !== st.solution[i]);
+        if (wrong >= 0) { st.checked = true; st.sel = wrong; render(); $("explain").innerHTML = "<b>" + S.cellName(wrong) + " が間違っています。</b>先に直してください。"; return; }
+        const h = S.nextStep(st.grid, st.solution);
+        if (!h) { $("explain").textContent = "これ以上進められません。"; return; }
+        st.grid[h.cell] = h.digit; st.who[h.cell] = "solved"; st.hint = h; st.sel = h.cell;
+        render();
+        let html = "<b>" + S.cellName(h.cell) + " = " + h.digit + "</b>　" + h.technique + "<br>" + h.reason;
+        if (h.eliminations.length) html += "<div class='pre'>前提として消した候補:<br>" + h.eliminations.slice(-3).map(e => "・" + e.reason).join("<br>") + "</div>";
+        $("explain").innerHTML = html;
+      });
+      $("btn-all").addEventListener("click", () => {
+        if (!st.solution) return;
+        for (let i = 0; i < 81; i++) if (!st.given[i]) { st.grid[i] = st.solution[i]; st.who[i] = "solved"; }
+        st.hint = null; render(); $("explain").innerHTML = "<b>解答をすべて表示しました。</b>";
+      });
+      $("btn-reset").addEventListener("click", () => { st.grid = st.given.slice(); st.who = st.given.map(v => v ? "given" : ""); st.hint = null; st.checked = false; $("explain").innerHTML = ""; render(); });
+      $("btn-check").addEventListener("click", () => {
+        st.checked = true; render();
+        const wrong = st.grid.filter((v, i) => v && st.who[i] === "user" && v !== st.solution[i]).length;
+        const userN = st.who.filter(w => w === "user").length;
+        $("explain").innerHTML = wrong ? "<b>" + wrong + " マス</b>間違っています（赤）。" : (userN ? "<b>ここまで全部合っています。</b>" : "まだ自分では入れていません。");
+      });
+      $("btn-cands").addEventListener("click", () => { st.showCands = !st.showCands; render(); });
+
+      // ══════════════════════════════════════════════
+      //  写真 → 読み取り
+      // ══════════════════════════════════════════════
+      const SCHEMA = {
+        type: "object", additionalProperties: false,
+        properties: {
+          rows: { type: "array", items: { type: "string", description: "1 行 9 文字。数字 1〜9、空マスは 0" }, description: "上から順に 9 行" },
+          notes: { type: "string", description: "読み取りに自信がないマスがあれば R行C列 で列挙。無ければ空" }
+        },
+        required: ["rows", "notes"]
+      };
+      const SYSTEM = "あなたはナンプレ（数独）の盤面を写真から正確に読み取るアシスタントです。9×9 の太線で区切られた盤面を、上の行から順に、各行を左から右へ読みます。印刷された大きな数字だけを読み、鉛筆書きの小さな候補メモや薄い書き込みは無視します。空マスは 0 にします。各行はちょうど 9 文字、合計 9 行です。行や列を飛ばさないよう、太線ブロック（3×3）ごとに数えて確認してください。";
+      const PROMPT = "この写真のナンプレの盤面を読み取り、指定の JSON で返してください。";
+      $("btn-camera").addEventListener("click", () => $("file-camera").click());
+      $("btn-photo").addEventListener("click", () => $("file-photo").click());
+      async function onPick(input) {
+        const f = input.files && input.files[0]; input.value = "";
+        if (!f) return;
+        $("input-err").textContent = "";
+        let im;
+        try { im = await fileToImage(f, 1568); } catch (e) { $("input-err").textContent = e.message; return; }
+        $("photo-preview").src = im.dataUrl; $("photo-preview").style.display = "";
+        $("reading").style.display = ""; const t0 = Date.now();
+        const tm = setInterval(() => { $("reading-ms").textContent = Math.round((Date.now() - t0) / 1000) + " 秒"; }, 500);
+        try {
+          const r = await Claude.extract({ images: [im], system: SYSTEM, prompt: PROMPT, schema: SCHEMA, effort: "high" });
+          const g = applyRecognized(r);
+          if (!g) throw new Error("盤面の形が読めませんでした（9 行 × 9 文字になっていません）。もう一度、真上から撮ってください。");
+          if (r.notes) toast("自信のないマス: " + r.notes, true);
+          const conf = S.conflicts(st.given);
+          if (conf.length) $("input-err").textContent = "読み取り結果に重複があります（赤いマス）。タップして直してください。";
+        } catch (e) { $("input-err").textContent = e.message; }
+        finally { clearInterval(tm); $("reading").style.display = "none"; }
+      }
+      function applyRecognized(r) {
+        if (!r || !Array.isArray(r.rows) || r.rows.length !== 9) return null;
+        const s = r.rows.map(x => String(x).replace(/[^0-9.]/g, "").padEnd(9, "0").slice(0, 9)).join("");
+        const g = S.parse(s); if (!g) return null;
+        setMode("edit");
+        st.given = g; st.grid = g.slice(); st.who = g.map(v => v ? "given" : ""); st.sel = -1;
+        render();
+        return g;
+      }
+      $("file-camera").addEventListener("change", () => onPick($("file-camera")));
+      $("file-photo").addEventListener("change", () => onPick($("file-photo")));
+      $("btn-sample").addEventListener("click", () => {
+        applyRecognized({ rows: ["530070000", "600195000", "098000060", "800060003", "400803001", "700020006", "060000280", "000419005", "000080079"], notes: "" });
+        toast("サンプル問題を入れました");
+      });
+
+      render();
+      window.NUMPRE = { st, S, applyRecognized, startSolve, render, Claude };
+    })();
+  </script>
+</body>
+</html>

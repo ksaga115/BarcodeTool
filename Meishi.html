@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="名刺スキャン">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>名刺スキャン — 撮るだけで iPhone の連絡先に</title>
+  <!--
+    名刺スキャン (Meishi.html)
+    名刺を撮ると Claude の画像認識で項目を読み取り、確認・修正して .vcf（vCard）として
+    iPhone の「連絡先」に追加する。読み取り以外は端末内で完結し、履歴は localStorage に保存。
+    API キーは自分のものを設定画面で入れる（端末内にだけ保存され、Anthropic 以外には送らない）。
+  -->
+  <style>
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+      --blue: #1e66f5; --blue-hover: #4d88f7; --blue-light: #89b4fa;
+      --red: #f38ba8; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387; --mauve: #cba6f7;
+      --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body {
+      background: var(--base); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; overflow: hidden; padding-top: var(--sat);
+    }
+    header { background: var(--mantle); border-bottom: 1px solid var(--surface0); padding: 10px 16px; flex-shrink: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    h1 { font-size: 17px; font-weight: 700; color: var(--blue-light); }
+    .hd-desc { font-size: 12px; color: var(--overlay); }
+    .hd-link { background: none; border: none; color: var(--blue-light); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: inherit; padding: 4px 0; white-space: nowrap; flex-shrink: 0; }
+    main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px calc(24px + var(--sab)); }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    button, .btn {
+      font-family: inherit; font-size: 15px; font-weight: 600; border-radius: 10px; border: 1px solid var(--surface1);
+      background: var(--surface0); color: var(--text); min-height: 44px; padding: 8px 16px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; white-space: nowrap;
+    }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: default; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .danger { color: var(--red); }
+    .wide { width: 100%; }
+    .big { min-height: 64px; font-size: 18px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 auto; }
+    .card { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 14px; margin-top: 12px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: var(--subtext); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+    .hint { font-size: 12px; color: var(--overlay); margin-top: 6px; }
+    .err { color: var(--red); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--subtext); margin-bottom: 3px; }
+    input[type=text], input[type=tel], input[type=email], input[type=url], input[type=password], textarea {
+      width: 100%; font-family: inherit; font-size: 16px; color: var(--text); background: var(--base);
+      border: 1px solid var(--surface1); border-radius: 8px; padding: 8px 10px; outline: none;
+    }
+    input:focus, textarea:focus { border-color: var(--blue-light); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+    .thumbs { display: flex; gap: 10px; margin-top: 10px; }
+    .thumbs img { width: 50%; max-height: 180px; object-fit: contain; background: #000; border-radius: 8px; }
+    .spin { display: inline-block; width: 18px; height: 18px; border: 3px solid var(--surface2); border-top-color: var(--blue-light); border-radius: 50%; animation: sp .8s linear infinite; vertical-align: middle; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    .hist { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--surface0); cursor: pointer; }
+    .hist:first-child { border-top: none; }
+    .hist img { width: 64px; height: 40px; object-fit: cover; border-radius: 6px; background: #000; flex-shrink: 0; }
+    .hist .t { flex: 1; min-width: 0; }
+    .hist .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hist .c { font-size: 12px; color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hist .d { font-size: 11px; color: var(--overlay); white-space: nowrap; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 40; }
+    .modal.on { display: flex; }
+    .sheet { background: var(--mantle); border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + var(--sab)); max-width: 720px; width: 100%; max-height: 88vh; overflow-y: auto; }
+    .sheet h2 { font-size: 16px; margin-bottom: 8px; color: var(--blue-light); }
+    .sheet p, .sheet li { font-size: 14px; color: var(--subtext); margin-bottom: 6px; }
+    .sheet ol { padding-left: 20px; }
+    @media (min-width: 720px) { .modal { align-items: center; } .sheet { border-radius: 16px; } }
+    .toast { position: fixed; left: 50%; bottom: calc(24px + var(--sab)); transform: translateX(-50%); background: var(--surface1); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
+    .toast.show { opacity: 1; }
+    .badge { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--surface0); color: var(--subtext); margin-left: 6px; }
+    .badge.ok { color: var(--green); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>名刺スキャン</h1>
+      <div class="hd-desc">撮るだけで iPhone の連絡先に追加</div>
+    </div>
+    <div>
+      <button class="hd-link" id="btn-help" type="button">つかいかた</button>
+      <button class="hd-link" id="btn-settings" type="button">設定<span class="badge" id="key-badge">未設定</span></button>
+    </div>
+  </header>
+
+  <main><div class="wrap">
+    <section class="card" id="cap-card">
+      <div class="row">
+        <button type="button" class="primary big" id="btn-camera">📷 名刺を撮る</button>
+        <button type="button" class="big" id="btn-photo">写真から選ぶ</button>
+      </div>
+      <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="file-photo" accept="image/*" style="display:none">
+      <div class="thumbs" id="thumbs" style="display:none">
+        <img id="img-front" alt="表">
+        <img id="img-back" alt="裏" style="display:none">
+      </div>
+      <div class="row" id="back-row" style="display:none; margin-top:10px">
+        <button type="button" id="btn-back">裏面も撮る（任意）</button>
+        <button type="button" class="primary" id="btn-read">読み取る</button>
+      </div>
+      <input type="file" id="file-back" accept="image/*" capture="environment" style="display:none">
+      <div id="reading" style="display:none; margin-top:10px"><span class="spin"></span> 読み取り中… <span id="reading-ms"></span></div>
+      <div class="err" id="cap-err"></div>
+      <div class="hint">名刺を平らに置き、文字が読める明るさで、枠いっぱいに撮ってください。裏面に英語表記があるときは裏面も読むとふりがなの精度が上がります。</div>
+    </section>
+
+    <section class="card" id="form-card" style="display:none">
+      <h2>確認・修正</h2>
+      <div class="grid2">
+        <div class="field"><label>姓</label><input type="text" id="f-last" autocomplete="off"></div>
+        <div class="field"><label>名</label><input type="text" id="f-first" autocomplete="off"></div>
+        <div class="field"><label>姓（ふりがな）</label><input type="text" id="f-last-kana" autocomplete="off"></div>
+        <div class="field"><label>名（ふりがな）</label><input type="text" id="f-first-kana" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>会社名</label><input type="text" id="f-org" autocomplete="off"></div>
+      <div class="grid2">
+        <div class="field"><label>部署</label><input type="text" id="f-dept" autocomplete="off"></div>
+        <div class="field"><label>役職</label><input type="text" id="f-title" autocomplete="off"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>電話（会社）</label><input type="tel" id="f-tel-work"></div>
+        <div class="field"><label>携帯</label><input type="tel" id="f-tel-cell"></div>
+        <div class="field"><label>FAX</label><input type="tel" id="f-fax"></div>
+        <div class="field"><label>メール</label><input type="email" id="f-email" autocapitalize="off"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>郵便番号</label><input type="text" id="f-zip" inputmode="numeric"></div>
+        <div class="field"><label>Web サイト</label><input type="url" id="f-url" autocapitalize="off"></div>
+      </div>
+      <div class="field"><label>住所</label><input type="text" id="f-address" autocomplete="off"></div>
+      <div class="field"><label>メモ（会った場所・用件など）</label><textarea id="f-note" rows="2"></textarea></div>
+      <div class="row" style="margin-top:12px">
+        <button type="button" class="primary big" id="btn-vcf">連絡先に追加（.vcf）</button>
+        <button type="button" class="big" id="btn-share">共有</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" id="btn-save">履歴に保存</button>
+        <button type="button" id="btn-new">次の名刺</button>
+      </div>
+      <div class="hint">「連絡先に追加」を押すと iPhone の連絡先カードが開きます。右上の「連絡先を作成」で保存されます。</div>
+    </section>
+
+    <section class="card" id="hist-card">
+      <h2>履歴 <span class="hint" style="display:inline" id="hist-count"></span></h2>
+      <div id="hist-list"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" id="btn-export-all">まとめて .vcf に書き出す</button>
+        <button type="button" class="danger" id="btn-clear-hist">履歴を全削除</button>
+      </div>
+    </section>
+  </div></main>
+
+  <div class="modal" id="settings">
+    <div class="sheet">
+      <h2>設定</h2>
+      <div class="field"><label>Anthropic API キー</label><input type="password" id="api-key" placeholder="sk-ant-…" autocapitalize="off" autocomplete="off"></div>
+      <p>キーはこの iPhone の中（このページの localStorage）にだけ保存され、名刺の画像と一緒に Anthropic の API へ送られるだけです。他のサーバーには送りません。</p>
+      <p>キーは <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="color:var(--blue-light)">console.anthropic.com</a> で発行できます。1 枚の読み取りにかかる料金は数円程度です。</p>
+      <div class="field"><label>モデル</label><input type="text" id="api-model" value="claude-opus-5" autocapitalize="off"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="primary" id="btn-save-key">保存</button>
+        <button type="button" id="btn-test-key">接続テスト</button>
+        <button type="button" id="btn-close-settings">閉じる</button>
+      </div>
+      <div class="err" id="settings-msg"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="help">
+    <div class="sheet">
+      <h2>つかいかた</h2>
+      <ol>
+        <li>右上の「設定」で Anthropic の API キーを入れる（初回だけ）。</li>
+        <li>「名刺を撮る」で撮影。裏面があれば「裏面も撮る」。</li>
+        <li>「読み取る」を押すと数秒で項目が埋まるので、間違いを直す。</li>
+        <li>「連絡先に追加」を押すと連絡先カードが開くので「連絡先を作成」。</li>
+      </ol>
+      <h2>仕組み</h2>
+      <p>写真を長辺 1568px に縮小して Claude に送り、姓名・ふりがな・会社・部署・役職・電話・メール・住所・URL を JSON で受け取ります。それを vCard 3.0（iPhone が読める形式）に組み立てて開きます。</p>
+      <p>履歴はこの端末の中だけに残ります。まとめて .vcf に書き出せば、PC や別の端末にも取り込めます。</p>
+      <button type="button" class="wide" id="btn-close-help" style="margin-top:12px">閉じる</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      let toastTimer = 0;
+      function toast(msg, isErr) {
+        const t = $("toast"); t.textContent = msg; t.style.color = isErr ? "var(--red)" : "";
+        t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
+      }
+
+      // ══════════════════════════════════════════════
+      //  Claude API（ブラウザから直接）
+      // ══════════════════════════════════════════════
+      const KEY_STORE = "claude_api_key", MODEL_STORE = "claude_model";
+      const Claude = {
+        get key() { try { return localStorage.getItem(KEY_STORE) || ""; } catch (e) { return ""; } },
+        set key(v) { try { localStorage.setItem(KEY_STORE, v); } catch (e) { } },
+        get model() { try { return localStorage.getItem(MODEL_STORE) || "claude-opus-5"; } catch (e) { return "claude-opus-5"; } },
+        set model(v) { try { localStorage.setItem(MODEL_STORE, v); } catch (e) { } },
+        endpoint: "https://api.anthropic.com/v1/messages",
+        /** 画像（複数可）と指示を送り、JSON スキーマに沿った結果を返す */
+        async extract({ images, system, prompt, schema, maxTokens, effort }) {
+          if (!this.key) throw new Error("API キーが設定されていません（右上の「設定」）");
+          const content = images.map(im => ({ type: "image", source: { type: "base64", media_type: im.mediaType, data: im.base64 } }));
+          content.push({ type: "text", text: prompt });
+          const body = {
+            model: this.model,
+            max_tokens: maxTokens || 4000,
+            system,
+            messages: [{ role: "user", content }],
+            output_config: { effort: effort || "medium", format: { type: "json_schema", schema } },
+            fallbacks: "default"          // 安全分類で拒否されたら別モデルで自動再試行（beta）
+          };
+          const res = await fetch(this.endpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-api-key": this.key,
+              "anthropic-version": "2023-06-01",
+              "anthropic-beta": "server-side-fallback-2026-07-01",
+              "anthropic-dangerous-direct-browser-access": "true"
+            },
+            body: JSON.stringify(body)
+          });
+          if (!res.ok) {
+            let detail = "";
+            try { const j = await res.json(); detail = (j.error && j.error.message) || JSON.stringify(j); } catch (e) { detail = await res.text().catch(() => ""); }
+            if (res.status === 401) throw new Error("API キーが無効です (401)");
+            if (res.status === 429) throw new Error("しばらく待ってから再試行してください (429)");
+            throw new Error("API エラー " + res.status + ": " + detail);
+          }
+          const msg = await res.json();
+          if (msg.stop_reason === "refusal") throw new Error("読み取りが拒否されました" + (msg.stop_details && msg.stop_details.explanation ? "：" + msg.stop_details.explanation : ""));
+          const text = (msg.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+          if (!text) throw new Error("応答が空でした");
+          try { return JSON.parse(text); }
+          catch (e) {
+            const m = text.match(/\{[\s\S]*\}/);
+            if (m) { try { return JSON.parse(m[0]); } catch (e2) { } }
+            throw new Error("応答を JSON として読めませんでした");
+          }
+        },
+        async ping() {
+          const res = await fetch(this.endpoint, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-api-key": this.key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+            body: JSON.stringify({ model: this.model, max_tokens: 16, messages: [{ role: "user", content: "OK とだけ返してください" }] })
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(res.status + " " + ((j.error && j.error.message) || "")); }
+          return true;
+        }
+      };
+
+      /** 写真を長辺 maxSide に縮小して JPEG の base64 にする（EXIF の向きはブラウザが補正） */
+      function fileToImage(file, maxSide) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+            const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
+            const c = document.createElement("canvas"); c.width = w; c.height = h;
+            c.getContext("2d").drawImage(img, 0, 0, w, h);
+            const dataUrl = c.toDataURL("image/jpeg", 0.88);
+            const thumb = document.createElement("canvas"); const tk = Math.min(1, 320 / Math.max(w, h));
+            thumb.width = Math.round(w * tk); thumb.height = Math.round(h * tk);
+            thumb.getContext("2d").drawImage(c, 0, 0, thumb.width, thumb.height);
+            resolve({ base64: dataUrl.slice(dataUrl.indexOf(",") + 1), mediaType: "image/jpeg", dataUrl, thumb: thumb.toDataURL("image/jpeg", 0.7), width: w, height: h });
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めません")); };
+          img.src = url;
+        });
+      }
+
+      // ══════════════════════════════════════════════
+      //  設定・ヘルプ
+      // ══════════════════════════════════════════════
+      function refreshBadge() {
+        const b = $("key-badge");
+        if (Claude.key) { b.textContent = "設定済"; b.classList.add("ok"); } else { b.textContent = "未設定"; b.classList.remove("ok"); }
+      }
+      $("btn-settings").addEventListener("click", () => { $("api-key").value = Claude.key; $("api-model").value = Claude.model; $("settings-msg").textContent = ""; $("settings").classList.add("on"); });
+      $("btn-close-settings").addEventListener("click", () => $("settings").classList.remove("on"));
+      $("btn-save-key").addEventListener("click", () => {
+        Claude.key = $("api-key").value.trim(); Claude.model = $("api-model").value.trim() || "claude-opus-5";
+        refreshBadge(); toast("保存しました"); $("settings").classList.remove("on");
+      });
+      $("btn-test-key").addEventListener("click", async () => {
+        Claude.key = $("api-key").value.trim(); Claude.model = $("api-model").value.trim() || "claude-opus-5"; refreshBadge();
+        $("settings-msg").style.color = ""; $("settings-msg").textContent = "接続中…";
+        try { await Claude.ping(); $("settings-msg").style.color = "var(--green)"; $("settings-msg").textContent = "接続できました"; }
+        catch (e) { $("settings-msg").style.color = ""; $("settings-msg").textContent = "接続できません: " + e.message; }
+      });
+      $("btn-help").addEventListener("click", () => $("help").classList.add("on"));
+      $("btn-close-help").addEventListener("click", () => $("help").classList.remove("on"));
+      document.querySelectorAll(".modal").forEach(m => m.addEventListener("click", e => { if (e.target === m) m.classList.remove("on"); }));
+      refreshBadge();
+
+      // ══════════════════════════════════════════════
+      //  撮影 → 読み取り
+      // ══════════════════════════════════════════════
+      const state = { front: null, back: null, card: null };
+      $("btn-camera").addEventListener("click", () => $("file-camera").click());
+      $("btn-photo").addEventListener("click", () => $("file-photo").click());
+      $("btn-back").addEventListener("click", () => $("file-back").click());
+      async function onPick(input, side) {
+        const f = input.files && input.files[0]; input.value = "";
+        if (!f) return;
+        try {
+          const im = await fileToImage(f, 1568);
+          state[side] = im;
+          $("thumbs").style.display = "";
+          if (side === "front") { $("img-front").src = im.dataUrl; }
+          else { $("img-back").src = im.dataUrl; $("img-back").style.display = ""; }
+          $("back-row").style.display = ""; $("cap-err").textContent = "";
+          if (side === "front" && !state.back) $("img-back").style.display = "none";
+        } catch (e) { $("cap-err").textContent = e.message; }
+      }
+      $("file-camera").addEventListener("change", () => onPick($("file-camera"), "front"));
+      $("file-photo").addEventListener("change", () => onPick($("file-photo"), "front"));
+      $("file-back").addEventListener("change", () => onPick($("file-back"), "back"));
+
+      const SCHEMA = {
+        type: "object", additionalProperties: false,
+        properties: {
+          last_name: { type: "string", description: "姓（表記どおり。日本語名なら漢字）" },
+          first_name: { type: "string", description: "名" },
+          last_name_kana: { type: "string", description: "姓のふりがな（ひらがな）。名刺にローマ字があればそこから推定。不明なら空" },
+          first_name_kana: { type: "string", description: "名のふりがな（ひらがな）。不明なら空" },
+          organization: { type: "string", description: "会社・団体名（株式会社などを含む正式表記）" },
+          department: { type: "string", description: "部署名（複数階層は「 」で区切って1つに）" },
+          title: { type: "string", description: "役職" },
+          tel_work: { type: "string", description: "会社の電話番号（TEL）。ハイフン付き" },
+          tel_cell: { type: "string", description: "携帯番号（Mobile/携帯）。ハイフン付き" },
+          fax: { type: "string", description: "FAX 番号" },
+          email: { type: "string" },
+          url: { type: "string", description: "Web サイト。https:// から" },
+          postal_code: { type: "string", description: "郵便番号（例 100-0001）" },
+          address: { type: "string", description: "住所（郵便番号を除く。都道府県から建物名まで）" },
+          notes: { type: "string", description: "その他の情報（資格、SNS、二つ目の住所など）。無ければ空" },
+          confidence: { type: "string", enum: ["high", "medium", "low"], description: "読み取り全体の自信" }
+        },
+        required: ["last_name", "first_name", "last_name_kana", "first_name_kana", "organization", "department", "title", "tel_work", "tel_cell", "fax", "email", "url", "postal_code", "address", "notes", "confidence"]
+      };
+      const SYSTEM = "あなたは日本の名刺を正確に読み取るアシスタントです。写真に写っている名刺の文字を、推測で補わず表記どおりに読み取ってください。読めない項目は空文字にします。日本語と英語が併記されている場合、氏名・会社名は日本語表記を優先し、ふりがなは英語表記から推定してひらがなで入れます。電話番号は市外局番からハイフン区切りで、全角は半角に直します。";
+      const PROMPT = "この名刺（1 枚目が表、2 枚目があれば裏）から連絡先の項目を読み取り、指定の JSON で返してください。";
+
+      $("btn-read").addEventListener("click", async () => {
+        if (!state.front) return;
+        $("cap-err").textContent = ""; $("reading").style.display = ""; $("btn-read").disabled = true;
+        const t0 = Date.now();
+        const tm = setInterval(() => { $("reading-ms").textContent = Math.round((Date.now() - t0) / 1000) + " 秒"; }, 500);
+        try {
+          const images = [state.front]; if (state.back) images.push(state.back);
+          const r = await Claude.extract({ images, system: SYSTEM, prompt: PROMPT, schema: SCHEMA, effort: "medium" });
+          fillForm(r);
+          state.card = { fields: readForm(), thumb: state.front.thumb, at: Date.now() };
+          $("form-card").style.display = "";
+          $("form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+          if (r.confidence === "low") toast("読み取りの自信が低めです。よく確認してください", true);
+        } catch (e) {
+          $("cap-err").textContent = e.message;
+        } finally {
+          clearInterval(tm); $("reading").style.display = "none"; $("btn-read").disabled = false;
+        }
+      });
+
+      const FIELDS = { last_name: "f-last", first_name: "f-first", last_name_kana: "f-last-kana", first_name_kana: "f-first-kana", organization: "f-org", department: "f-dept", title: "f-title", tel_work: "f-tel-work", tel_cell: "f-tel-cell", fax: "f-fax", email: "f-email", url: "f-url", postal_code: "f-zip", address: "f-address", notes: "f-note" };
+      function fillForm(r) { for (const k in FIELDS) $(FIELDS[k]).value = (r && r[k]) ? String(r[k]) : ""; }
+      function readForm() { const o = {}; for (const k in FIELDS) o[k] = $(FIELDS[k]).value.trim(); return o; }
+
+      // ══════════════════════════════════════════════
+      //  vCard 3.0（iPhone の連絡先が読める形式）
+      // ══════════════════════════════════════════════
+      function vEsc(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;"); }
+      function toVCard(f) {
+        const L = ["BEGIN:VCARD", "VERSION:3.0"];
+        L.push("N:" + vEsc(f.last_name) + ";" + vEsc(f.first_name) + ";;;");
+        const fn = (f.last_name + " " + f.first_name).trim() || f.organization || "名刺";
+        L.push("FN:" + vEsc(fn));
+        if (f.last_name_kana) L.push("X-PHONETIC-LAST-NAME:" + vEsc(f.last_name_kana));
+        if (f.first_name_kana) L.push("X-PHONETIC-FIRST-NAME:" + vEsc(f.first_name_kana));
+        if (f.organization || f.department) L.push("ORG:" + vEsc(f.organization) + (f.department ? ";" + vEsc(f.department) : ""));
+        if (f.title) L.push("TITLE:" + vEsc(f.title));
+        if (f.tel_work) L.push("TEL;TYPE=WORK,VOICE:" + vEsc(f.tel_work));
+        if (f.tel_cell) L.push("TEL;TYPE=CELL,VOICE:" + vEsc(f.tel_cell));
+        if (f.fax) L.push("TEL;TYPE=WORK,FAX:" + vEsc(f.fax));
+        if (f.email) L.push("EMAIL;TYPE=INTERNET,WORK:" + vEsc(f.email));
+        if (f.address || f.postal_code) L.push("ADR;TYPE=WORK:;;" + vEsc(f.address) + ";;;" + vEsc(f.postal_code) + ";日本");
+        if (f.url) L.push("URL:" + vEsc(f.url));
+        if (f.notes) L.push("NOTE:" + vEsc(f.notes));
+        L.push("REV:" + new Date().toISOString().replace(/\.\d+Z$/, "Z"));
+        L.push("END:VCARD");
+        return L.join("\r\n") + "\r\n";
+      }
+      function vcfName(f) { return ((f.last_name + f.first_name) || f.organization || "contact").replace(/[\/\\:*?"<>|\s]+/g, "_") + ".vcf"; }
+      function downloadText(text, name, mime) {
+        const blob = new Blob([text], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+      }
+      $("btn-vcf").addEventListener("click", () => {
+        const f = readForm();
+        if (!f.last_name && !f.first_name && !f.organization) { toast("名前か会社名を入れてください", true); return; }
+        downloadText(toVCard(f), vcfName(f), "text/vcard;charset=utf-8");
+        saveHistory(true);
+      });
+      $("btn-share").addEventListener("click", async () => {
+        const f = readForm();
+        const text = toVCard(f);
+        try {
+          const file = new File([text], vcfName(f), { type: "text/vcard" });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: vcfName(f) }); return; }
+          if (navigator.share) { await navigator.share({ text: [f.last_name + " " + f.first_name, f.organization, f.tel_work, f.email].filter(Boolean).join("\n") }); return; }
+          downloadText(text, vcfName(f), "text/vcard;charset=utf-8");
+        } catch (e) { /* キャンセル */ }
+      });
+      $("btn-save").addEventListener("click", () => saveHistory(false));
+      $("btn-new").addEventListener("click", () => {
+        state.front = state.back = state.card = null;
+        $("thumbs").style.display = "none"; $("back-row").style.display = "none"; $("form-card").style.display = "none";
+        $("img-back").style.display = "none"; fillForm(null);
+        window.scrollTo(0, 0); document.querySelector("main").scrollTo(0, 0);
+      });
+
+      // ══════════════════════════════════════════════
+      //  履歴（localStorage）
+      // ══════════════════════════════════════════════
+      const HIST_KEY = "meishi_history_v1";
+      function loadHist() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch (e) { return []; } }
+      function storeHist(list) { try { localStorage.setItem(HIST_KEY, JSON.stringify(list)); } catch (e) { toast("保存できません（容量不足）", true); } }
+      function saveHistory(quiet) {
+        const f = readForm();
+        if (!f.last_name && !f.first_name && !f.organization) { if (!quiet) toast("名前か会社名を入れてください", true); return; }
+        const list = loadHist();
+        const id = state.card && state.card.id;
+        const rec = { id: id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)), fields: f, thumb: state.front ? state.front.thumb : (state.card && state.card.thumb) || "", at: Date.now() };
+        const i = list.findIndex(x => x.id === rec.id);
+        if (i >= 0) list[i] = rec; else list.unshift(rec);
+        state.card = rec;
+        storeHist(list.slice(0, 500)); renderHist();
+        if (!quiet) toast("履歴に保存しました");
+      }
+      function renderHist() {
+        const list = loadHist();
+        $("hist-count").textContent = list.length ? "（" + list.length + " 件）" : "";
+        const el = $("hist-list");
+        el.innerHTML = list.length ? "" : '<div class="hint">まだありません。読み取った名刺はここに残ります。</div>';
+        for (const r of list) {
+          const d = document.createElement("div"); d.className = "hist";
+          const f = r.fields;
+          d.innerHTML = '<img alt="">' +
+            '<div class="t"><div class="n"></div><div class="c"></div></div><div class="d"></div>';
+          d.querySelector("img").src = r.thumb || "";
+          d.querySelector(".n").textContent = ((f.last_name + " " + f.first_name).trim() || "（名前なし）") + (f.title ? "　" + f.title : "");
+          d.querySelector(".c").textContent = [f.organization, f.department].filter(Boolean).join(" ");
+          d.querySelector(".d").textContent = new Date(r.at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
+          d.addEventListener("click", () => {
+            state.card = r; state.front = null; state.back = null;
+            fillForm(f); $("form-card").style.display = "";
+            $("thumbs").style.display = r.thumb ? "" : "none"; $("img-front").src = r.thumb || ""; $("img-back").style.display = "none"; $("back-row").style.display = "none";
+            $("form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+          el.appendChild(d);
+        }
+      }
+      $("btn-export-all").addEventListener("click", () => {
+        const list = loadHist(); if (!list.length) { toast("履歴がありません", true); return; }
+        downloadText(list.map(r => toVCard(r.fields)).join(""), "meishi-" + new Date().toISOString().slice(0, 10) + ".vcf", "text/vcard;charset=utf-8");
+      });
+      $("btn-clear-hist").addEventListener("click", () => { if (confirm("履歴をすべて削除しますか？")) { storeHist([]); renderHist(); } });
+      renderHist();
+
+      // テスト用フック
+      window.MEISHI = { Claude, toVCard, fillForm, readForm, state, fileToImage, SCHEMA };
+    })();
+  </script>
+</body>
+</html>

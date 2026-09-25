@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="3D写真">
+  <meta name="theme-color" content="#1e1e2e">
+  <title>3D写真 — iPhone 2 台で同時シャッター</title>
+  <!--
+    3D写真 (Photo3D.html)
+    iPhone 2 台を横に並べ、親機の「音の合図」で子機のマイクが反応して同時にシャッターを切る。
+    2 枚を合成して「ぐらぐら GIF」「赤青メガネ用」「平行法/交差法」を作る。
+    1 台で 2 回撮る（右に 6〜7 cm ずらす）モードと、写真 2 枚から作るモードもある。
+    通信ゼロ・端末内で完結。GIF エンコーダも自前。
+  -->
+  <style>
+    :root {
+      --base: #1e1e2e; --mantle: #181825; --crust: #11111b;
+      --text: #cdd6f4; --subtext: #a6adc8; --overlay: #6c7086;
+      --surface0: #313244; --surface1: #45475a; --surface2: #585b70;
+      --blue: #1e66f5; --blue-light: #89b4fa; --red: #f38ba8; --green: #a6e3a1; --yellow: #f9e2af; --peach: #fab387; --mauve: #cba6f7; --sky: #89dceb;
+      --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; }
+    body { background: var(--base); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column; overflow: hidden; padding-top: var(--sat); }
+    header { background: var(--mantle); border-bottom: 1px solid var(--surface0); padding: 10px 16px; flex-shrink: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    h1 { font-size: 17px; font-weight: 700; color: var(--blue-light); }
+    .hd-desc { font-size: 12px; color: var(--overlay); }
+    .hd-link { background: none; border: none; color: var(--blue-light); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: inherit; padding: 4px 0; white-space: nowrap; }
+    main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 14px calc(24px + var(--sab)); }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    button, .btn { font-family: inherit; font-size: 15px; font-weight: 600; border-radius: 10px; border: 1px solid var(--surface1); background: var(--surface0); color: var(--text); min-height: 44px; padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+    button:active { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: default; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .big { min-height: 60px; font-size: 18px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 auto; }
+    .card { background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; padding: 12px; margin-top: 10px; }
+    .card h2 { font-size: 13px; font-weight: 700; color: var(--subtext); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+    .hint { font-size: 12px; color: var(--overlay); margin-top: 6px; }
+    .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+    .seg { display: flex; border: 1px solid var(--surface1); border-radius: 10px; overflow: hidden; }
+    .seg button { flex: 1; border: none; border-radius: 0; background: none; font-weight: 500; padding: 8px 4px; font-size: 14px; }
+    .seg button.on { background: var(--surface1); color: var(--blue-light); font-weight: 700; }
+    .panel { display: none; }
+    .panel.on { display: block; }
+    .field { margin-top: 10px; }
+    .field label { display: block; font-size: 13px; color: var(--subtext); margin-bottom: 2px; }
+    .field label b { color: var(--yellow); font-weight: 600; }
+    input[type=range] { width: 100%; accent-color: var(--blue-light); }
+    #cam { position: relative; background: #000; border-radius: 12px; overflow: hidden; aspect-ratio: 4 / 3; margin-top: 10px; }
+    #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #cam .ov { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+    #count { font-size: 120px; font-weight: 800; color: #fff; text-shadow: 0 4px 30px rgba(0,0,0,.8); }
+    #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+    #flash.on { opacity: .9; transition: none; }
+    #level { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 8px; background: rgba(255,255,255,.25); border-radius: 4px; overflow: hidden; }
+    #level i { display: block; height: 100%; width: 0; background: var(--green); }
+    #level i.hot { background: var(--yellow); }
+    .shots { display: flex; gap: 8px; margin-top: 10px; }
+    .shots div { flex: 1; text-align: center; font-size: 12px; color: var(--subtext); }
+    .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #000; border-radius: 8px; display: block; }
+    #preview { width: 100%; max-height: 60vh; background: #000; border-radius: 12px; display: block; margin-top: 10px; }
+    .toast { position: fixed; left: 50%; bottom: calc(24px + var(--sab)); transform: translateX(-50%); background: var(--surface1); color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
+    .toast.show { opacity: 1; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 40; }
+    .modal.on { display: flex; }
+    .sheet { background: var(--mantle); border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + var(--sab)); max-width: 720px; width: 100%; max-height: 88vh; overflow-y: auto; }
+    .sheet h2 { font-size: 16px; margin-bottom: 8px; color: var(--blue-light); }
+    .sheet p, .sheet li { font-size: 14px; color: var(--subtext); margin-bottom: 6px; }
+    .sheet ol { padding-left: 20px; }
+    @media (min-width: 720px) { .modal { align-items: center; } .sheet { border-radius: 16px; } }
+    .status { font-size: 14px; margin-top: 8px; min-height: 22px; }
+    .status b { color: var(--yellow); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>3D写真</h1><div class="hd-desc">iPhone 2 台で同時シャッター → ぐらぐら GIF</div></div>
+    <button class="hd-link" id="btn-help" type="button">つかいかた</button>
+  </header>
+
+  <main><div class="wrap">
+    <div class="seg" id="mode">
+      <button type="button" class="on" data-mode="parent">2台・親機</button>
+      <button type="button" data-mode="child">2台・子機</button>
+      <button type="button" data-mode="single">1台で2回</button>
+      <button type="button" data-mode="files">写真2枚から</button>
+    </div>
+
+    <!-- ── 撮影パネル（親機・子機・1台） ── -->
+    <section class="panel on card" id="panel-cam">
+      <div class="hint" id="mode-hint"></div>
+      <div id="cam">
+        <video id="video" playsinline muted autoplay></video>
+        <div class="ov"><div id="count"></div></div>
+        <div id="flash"></div>
+        <div id="level" style="display:none"><i></i></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="primary big" id="btn-shutter">📷 撮る</button>
+        <button type="button" id="btn-cam-toggle">カメラをはじめる</button>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="err" id="cam-err"></div>
+      <div class="shots" id="shots" style="display:none">
+        <div><img id="shot-l" alt=""><span>左（自分）</span></div>
+        <div><img id="shot-r" alt=""><span id="shot-r-label">右（相手）</span></div>
+      </div>
+      <div class="row" style="margin-top:10px" id="after-shot">
+        <button type="button" id="btn-share-shot" style="display:none">相手に送る（AirDrop）</button>
+        <button type="button" id="btn-load-other" style="display:none">相手の写真を読み込む</button>
+        <button type="button" id="btn-retake" style="display:none">撮り直す</button>
+      </div>
+      <input type="file" id="file-other" accept="image/*" style="display:none">
+    </section>
+
+    <!-- ── 写真 2 枚から ── -->
+    <section class="panel card" id="panel-files">
+      <div class="row">
+        <button type="button" id="btn-file-l">左の写真を選ぶ</button>
+        <button type="button" id="btn-file-r">右の写真を選ぶ</button>
+      </div>
+      <input type="file" id="file-l" accept="image/*" style="display:none">
+      <input type="file" id="file-r" accept="image/*" style="display:none">
+      <div class="hint">同じ場面を、カメラを 6〜7 cm 右にずらして撮った 2 枚を選んでください（順番はあとで入れ替えられます）。</div>
+    </section>
+
+    <!-- ── 合成 ── -->
+    <section class="card" id="panel-compose" style="display:none">
+      <h2>合成</h2>
+      <div class="seg" id="out">
+        <button type="button" class="on" data-out="wiggle">ぐらぐら</button>
+        <button type="button" data-out="anaglyph">赤青メガネ</button>
+        <button type="button" data-out="parallel">平行法</button>
+        <button type="button" data-out="cross">交差法</button>
+      </div>
+      <canvas id="preview"></canvas>
+      <div class="field"><label>横ずれ（ピントを合わせる被写体が重なる位置）: <b id="v-dx">0</b> px</label><input type="range" id="dx" min="-300" max="300" value="0"></div>
+      <div class="field"><label>縦ずれ: <b id="v-dy">0</b> px</label><input type="range" id="dy" min="-120" max="120" value="0"></div>
+      <div class="field" id="speed-field"><label>ぐらぐらの速さ: <b id="v-speed">120</b> ms</label><input type="range" id="speed" min="60" max="400" step="10" value="120"></div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" id="btn-auto">自動で位置合わせ</button>
+        <button type="button" id="btn-swap">左右を入れ替え</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="primary big" id="btn-export">保存 / 共有</button>
+      </div>
+      <div class="status" id="export-status"></div>
+      <div class="hint">「自動で位置合わせ」は画面の大部分を占めるものを重ねます。手前の被写体で合わせたいときは横ずれを動かしてください。ぐらぐらでは「重なっている物」が奥行きの基準になります。</div>
+    </section>
+  </div></main>
+
+  <div class="modal" id="help">
+    <div class="sheet">
+      <h2>2 台で撮る</h2>
+      <ol>
+        <li>2 台の iPhone でこのページを開き、左の人は「親機」、右の人は「子機」を選ぶ。</li>
+        <li>2 台を <b>横に 6〜7 cm 離して</b> 同じ向きに構える（目の間隔と同じ）。</li>
+        <li>子機は「待機する」を押す（マイクで合図を待つ）。</li>
+        <li>親機が「撮る」を押すと 3・2・1 のあと「ピーッ」と鳴り、その瞬間に両方のシャッターが切れる。</li>
+        <li>子機の写真を AirDrop で親機に送り、親機で「相手の写真を読み込む」。</li>
+      </ol>
+      <h2>1 台で 2 回</h2>
+      <p>動かない被写体なら 1 台でも作れます。1 枚目を撮ったら、iPhone を回さずに <b>右へ 6〜7 cm 平行移動</b>して 2 枚目を撮ります。</p>
+      <h2>見かた</h2>
+      <p><b>ぐらぐら</b>: 2 枚を交互に表示する GIF。メガネなしで誰でも立体感がわかります。SNS にそのまま貼れます。</p>
+      <p><b>赤青メガネ</b>: 赤(左)・青(右) のメガネで見ると本当に飛び出します。</p>
+      <p><b>平行法 / 交差法</b>: 2 枚を並べた画像。目の焦点をずらして見る昔ながらの方法です。</p>
+      <p>通信は一切使いません。写真も端末の外に出ません。</p>
+      <button type="button" id="btn-close-help" style="margin-top:12px; width:100%">閉じる</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ══════════ GIF エンコーダ（自前・純粋関数） ══════════ -->
+  <script id="gif-src">
+    (function (global) {
+      "use strict";
+      /** メディアンカット法で最大 256 色のパレットを作る。pixels: Uint8ClampedArray(RGBA) の配列 */
+      function buildPalette(frames, maxColors) {
+        const samples = [];
+        for (const f of frames) {
+          const step = Math.max(1, Math.floor((f.length / 4) / 20000)) * 4;
+          for (let p = 0; p < f.length; p += step) samples.push((f[p] << 16) | (f[p + 1] << 8) | f[p + 2]);
+        }
+        let boxes = [samples];
+        const range = box => {
+          let mn = [255, 255, 255], mx = [0, 0, 0];
+          for (const c of box) { const r = c >> 16, g = (c >> 8) & 255, b = c & 255; if (r < mn[0]) mn[0] = r; if (r > mx[0]) mx[0] = r; if (g < mn[1]) mn[1] = g; if (g > mx[1]) mx[1] = g; if (b < mn[2]) mn[2] = b; if (b > mx[2]) mx[2] = b; }
+          const d = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]];
+          const ch = d[0] >= d[1] && d[0] >= d[2] ? 0 : (d[1] >= d[2] ? 1 : 2);
+          return { spread: d[ch], ch };
+        };
+        while (boxes.length < maxColors) {
+          let bi = -1, bs = -1;
+          for (let i = 0; i < boxes.length; i++) { if (boxes[i].length < 2) continue; const r = range(boxes[i]); if (r.spread > bs) { bs = r.spread; bi = i; } }
+          if (bi < 0 || bs === 0) break;
+          const box = boxes[bi], ch = range(box).ch, sh = ch === 0 ? 16 : ch === 1 ? 8 : 0;
+          box.sort((a, b) => ((a >> sh) & 255) - ((b >> sh) & 255));
+          const mid = box.length >> 1;
+          boxes.splice(bi, 1, box.slice(0, mid), box.slice(mid));
+        }
+        const pal = new Uint8Array(256 * 3);
+        boxes.forEach((box, i) => {
+          let r = 0, g = 0, b = 0;
+          for (const c of box) { r += c >> 16; g += (c >> 8) & 255; b += c & 255; }
+          const n = box.length || 1;
+          pal[i * 3] = Math.round(r / n); pal[i * 3 + 1] = Math.round(g / n); pal[i * 3 + 2] = Math.round(b / n);
+        });
+        return { pal, count: boxes.length };
+      }
+      /** RGBA → パレット番号（5bit キャッシュで最近傍探索） */
+      function quantize(rgba, pal, count) {
+        const out = new Uint8Array(rgba.length / 4);
+        const cache = new Int16Array(32768).fill(-1);
+        for (let i = 0, p = 0; p < rgba.length; i++, p += 4) {
+          const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
+          const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+          let idx = cache[key];
+          if (idx < 0) {
+            let best = 0, bd = 1e9;
+            for (let k = 0; k < count; k++) {
+              const dr = r - pal[k * 3], dg = g - pal[k * 3 + 1], db = b - pal[k * 3 + 2];
+              const d = dr * dr * 2 + dg * dg * 3 + db * db;
+              if (d < bd) { bd = d; best = k; }
+            }
+            idx = best; cache[key] = idx;
+          }
+          out[i] = idx;
+        }
+        return out;
+      }
+      /** GIF の LZW 圧縮（最小コードサイズ 8） */
+      function lzw(indices) {
+        const out = [];
+        let cur = 0, curBits = 0;
+        const emit = (code, size) => { cur |= code << curBits; curBits += size; while (curBits >= 8) { out.push(cur & 255); cur >>>= 8; curBits -= 8; } };
+        const CLEAR = 256, EOI = 257;
+        let dict = new Map(), next = 258, size = 9;
+        emit(CLEAR, size);
+        let prefix = indices[0];
+        for (let i = 1; i < indices.length; i++) {
+          const c = indices[i], key = (prefix << 8) | c;
+          const found = dict.get(key);
+          if (found !== undefined) { prefix = found; continue; }
+          emit(prefix, size);
+          if (next < 4096) { dict.set(key, next++); if (next - 1 === (1 << size) && size < 12) size++; }
+          else { emit(CLEAR, size); dict = new Map(); next = 258; size = 9; }
+          prefix = c;
+        }
+        emit(prefix, size); emit(EOI, size);
+        if (curBits > 0) out.push(cur & 255);
+        return out;
+      }
+      /** frames: [{ rgba, delayMs }], 全フレーム同じ w×h。戻り値 Uint8Array（GIF89a、無限ループ） */
+      function encodeGif(w, h, frames) {
+        const { pal, count } = buildPalette(frames.map(f => f.rgba), 256);
+        const bytes = [];
+        const push = (...a) => { for (const v of a) bytes.push(v & 255); };
+        const u16 = v => push(v & 255, v >> 8);
+        push(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);                 // GIF89a
+        u16(w); u16(h); push(0xF7, 0, 0);                          // GCT あり・8bit・256色
+        for (let i = 0; i < 768; i++) push(pal[i]);
+        push(0x21, 0xFF, 0x0B); for (const ch of "NETSCAPE2.0") push(ch.charCodeAt(0)); push(3, 1, 0, 0, 0);  // ループ
+        for (const f of frames) {
+          const delay = Math.max(2, Math.round(f.delayMs / 10));
+          push(0x21, 0xF9, 0x04, 0x04); u16(delay); push(0, 0);   // GCE: disposal=1
+          push(0x2C); u16(0); u16(0); u16(w); u16(h); push(0);     // 画像記述子
+          push(8);
+          const data = lzw(quantize(f.rgba, pal, count));
+          for (let p = 0; p < data.length; p += 255) { const n = Math.min(255, data.length - p); push(n); for (let k = 0; k < n; k++) push(data[p + k]); }
+          push(0);
+        }
+        push(0x3B);
+        return new Uint8Array(bytes);
+      }
+      global.GifEncoder = { encodeGif, buildPalette, quantize, lzw };
+    })(typeof window !== "undefined" ? window : globalThis);
+  </script>
+
+  <script>
+    (function () {
+      "use strict";
+      const $ = id => document.getElementById(id);
+      let toastTimer = 0;
+      function toast(msg, isErr) { const t = $("toast"); t.textContent = msg; t.style.color = isErr ? "var(--red)" : ""; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2400); }
+      $("btn-help").addEventListener("click", () => $("help").classList.add("on"));
+      $("btn-close-help").addEventListener("click", () => $("help").classList.remove("on"));
+      $("help").addEventListener("click", e => { if (e.target === $("help")) $("help").classList.remove("on"); });
+
+      const st = { mode: "parent", stream: null, mic: null, ac: null, listening: false, shotL: null, shotR: null, single: 0, out: "wiggle", dx: 0, dy: 0, speed: 120, imgL: null, imgR: null, anim: 0, wake: null };
+      const video = $("video");
+      const HINTS = {
+        parent: "左側の人。2 台を横に 6〜7 cm 離して同じ向きに構え、「撮る」を押すと 3・2・1 の合図のあと同時にシャッターが切れます。",
+        child: "右側の人。「待機する」を押すと親機の「ピーッ」をマイクで聞き取って自動でシャッターを切ります。",
+        single: "1 枚目を撮ったら、iPhone を回さずに右へ 6〜7 cm 平行移動して 2 枚目を撮ります。動かない被写体向き。"
+      };
+
+      // ── モード ──
+      $("mode").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setMode(b.dataset.mode); });
+      function setMode(m) {
+        st.mode = m;
+        [...$("mode").children].forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+        $("panel-cam").classList.toggle("on", m !== "files");
+        $("panel-files").classList.toggle("on", m === "files");
+        $("mode-hint").textContent = HINTS[m] || "";
+        $("btn-shutter").textContent = m === "child" ? "🎤 待機する" : "📷 撮る";
+        $("shot-r-label").textContent = m === "single" ? "右（2 枚目）" : "右（相手）";
+        $("level").style.display = "none";
+        stopListening();
+        resetShots();
+      }
+      function resetShots() {
+        st.shotL = st.shotR = null; st.single = 0;
+        $("shots").style.display = "none"; $("status").textContent = ""; $("cam-err").textContent = "";
+        ["btn-share-shot", "btn-load-other", "btn-retake"].forEach(id => $(id).style.display = "none");
+        $("panel-compose").style.display = "none";
+      }
+
+      // ── カメラ ──
+      $("btn-cam-toggle").addEventListener("click", () => st.stream ? stopCamera() : startCamera());
+      async function startCamera() {
+        try {
+          st.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+        } catch (e1) {
+          try { st.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+          catch (e2) { $("cam-err").textContent = "カメラを起動できません: " + (e2.name || e2) + "（HTTPS で開き、カメラを許可してください）"; return false; }
+        }
+        video.srcObject = st.stream; try { await video.play(); } catch (e) { }
+        $("btn-cam-toggle").textContent = "カメラを止める";
+        try { if (navigator.wakeLock) st.wake = await navigator.wakeLock.request("screen"); } catch (e) { }
+        return true;
+      }
+      function stopCamera() {
+        stopListening();
+        if (st.stream) { st.stream.getTracks().forEach(t => { try { t.stop(); } catch (e) { } }); st.stream = null; }
+        video.srcObject = null; $("btn-cam-toggle").textContent = "カメラをはじめる";
+        if (st.wake) { try { st.wake.release(); } catch (e) { } st.wake = null; }
+      }
+      /** 今のフレームを静止画（canvas）に */
+      function capture() {
+        const w = video.videoWidth, h = video.videoHeight;
+        if (!w || !h) return null;
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(video, 0, 0, w, h);
+        $("flash").classList.add("on"); setTimeout(() => $("flash").classList.remove("on"), 40);
+        return c;
+      }
+
+      // ── 音の合図 ──
+      const FIRE_HZ = 2400, FIRE_MS = 300, BEEP_HZ = 880;
+      function ensureAudio() {
+        if (!st.ac) st.ac = new (window.AudioContext || window.webkitAudioContext)();
+        if (st.ac.state === "suspended") st.ac.resume();
+        return st.ac;
+      }
+      function tone(hz, ms, gain) {
+        const ac = ensureAudio();
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.type = "sine"; o.frequency.value = hz; g.gain.value = gain || 0.6;
+        o.connect(g); g.connect(ac.destination);
+        const t = ac.currentTime; o.start(t); o.stop(t + ms / 1000);
+      }
+
+      $("btn-shutter").addEventListener("click", async () => {
+        if (st.mode === "child") { st.listening ? stopListening() : startListening(); return; }
+        if (!st.stream && !(await startCamera())) return;
+        if (st.mode === "single") { shootSingle(); return; }
+        // 親機: 3・2・1 → 発射音
+        $("btn-shutter").disabled = true;
+        ensureAudio();
+        for (let n = 3; n >= 1; n--) {
+          $("count").textContent = n; tone(BEEP_HZ, 90, 0.4);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        $("count").textContent = "";
+        tone(FIRE_HZ, FIRE_MS, 0.9);
+        const shot = capture();
+        $("btn-shutter").disabled = false;
+        if (!shot) { $("cam-err").textContent = "映像がまだ来ていません。もう一度押してください。"; return; }
+        st.shotL = shot; showShots();
+        $("status").innerHTML = "撮れました。<b>子機の写真を AirDrop で受け取って</b>「相手の写真を読み込む」を押してください。";
+        $("btn-load-other").style.display = ""; $("btn-retake").style.display = ""; $("btn-share-shot").style.display = "";
+        $("btn-share-shot").textContent = "この写真を保存";
+      });
+
+      function shootSingle() {
+        const shot = capture(); if (!shot) return;
+        if (st.single === 0) {
+          st.shotL = shot; st.single = 1; showShots();
+          $("status").innerHTML = "1 枚目 OK。<b>右へ 6〜7 cm 平行移動</b>して、もう一度「撮る」。";
+          $("btn-retake").style.display = "";
+        } else {
+          st.shotR = shot; st.single = 0; showShots();
+          $("status").textContent = "2 枚撮れました。下で合成します。";
+          compose(st.shotL, st.shotR);
+        }
+      }
+
+      async function startListening() {
+        if (!st.stream && !(await startCamera())) return;
+        try { st.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, video: false }); }
+        catch (e) { $("cam-err").textContent = "マイクを使えません: " + (e.name || e); return; }
+        const ac = ensureAudio();
+        const src = ac.createMediaStreamSource(st.mic);
+        const an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0.2;
+        src.connect(an);
+        const buf = new Float32Array(an.frequencyBinCount);
+        const binHz = ac.sampleRate / an.fftSize;
+        const target = Math.round(FIRE_HZ / binHz);
+        st.listening = true; let hot = 0;
+        $("btn-shutter").textContent = "⏹ 待機をやめる"; $("level").style.display = "";
+        $("status").innerHTML = "親機の「ピーッ」を待っています…　<b>音量を上げてもらう</b>と確実です。";
+        const loop = () => {
+          if (!st.listening) return;
+          an.getFloatFrequencyData(buf);
+          let peak = -200; for (let k = target - 2; k <= target + 2; k++) if (buf[k] > peak) peak = buf[k];
+          let sum = 0, n = 0; for (let k = 8; k < buf.length / 2; k++) { if (Math.abs(k - target) > 6) { sum += buf[k]; n++; } }
+          const floor = sum / n;
+          const snr = peak - floor;                                // dB
+          const lv = $("level").firstElementChild;
+          lv.style.width = Math.min(100, Math.max(0, (snr - 5) * 3)) + "%";
+          lv.classList.toggle("hot", snr > 25);
+          if (snr > 25) hot++; else hot = 0;
+          if (hot >= 2) { onFire(); return; }
+          requestAnimationFrame(loop);
+        };
+        loop();
+      }
+      function stopListening() {
+        st.listening = false;
+        if (st.mic) { st.mic.getTracks().forEach(t => { try { t.stop(); } catch (e) { } }); st.mic = null; }
+        if (st.mode === "child") { $("btn-shutter").textContent = "🎤 待機する"; $("level").style.display = "none"; }
+      }
+      function onFire() {
+        const shot = capture();
+        stopListening();
+        if (!shot) { $("cam-err").textContent = "映像がまだ来ていません。"; return; }
+        st.shotR = shot; showShots();
+        $("shot-r-label").textContent = "右（自分）";
+        $("status").innerHTML = "撮れました。<b>AirDrop で親機に送って</b>ください。";
+        $("btn-share-shot").style.display = ""; $("btn-share-shot").textContent = "親機に送る（AirDrop）"; $("btn-retake").style.display = "";
+      }
+      function showShots() {
+        $("shots").style.display = "";
+        $("shot-l").src = st.shotL ? st.shotL.toDataURL("image/jpeg", 0.8) : "";
+        $("shot-r").src = st.shotR ? st.shotR.toDataURL("image/jpeg", 0.8) : "";
+      }
+      $("btn-retake").addEventListener("click", () => { resetShots(); if (st.mode === "child") $("shot-r-label").textContent = "右（相手）"; });
+      $("btn-share-shot").addEventListener("click", async () => {
+        const c = st.mode === "child" ? st.shotR : st.shotL; if (!c) return;
+        const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
+        const name = (st.mode === "child" ? "right" : "left") + "-" + Date.now() + ".jpg";
+        try {
+          const file = new File([blob], name, { type: "image/jpeg" });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+        } catch (e) { return; }
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      });
+      $("btn-load-other").addEventListener("click", () => $("file-other").click());
+      $("file-other").addEventListener("change", async () => {
+        const f = $("file-other").files && $("file-other").files[0]; $("file-other").value = ""; if (!f) return;
+        try { st.shotR = await fileToCanvas(f, 1600); showShots(); compose(st.shotL, st.shotR); }
+        catch (e) { $("cam-err").textContent = e.message; }
+      });
+
+      // ── 写真 2 枚から ──
+      $("btn-file-l").addEventListener("click", () => $("file-l").click());
+      $("btn-file-r").addEventListener("click", () => $("file-r").click());
+      $("file-l").addEventListener("change", () => pickFile("file-l", "imgL"));
+      $("file-r").addEventListener("change", () => pickFile("file-r", "imgR"));
+      async function pickFile(id, key) {
+        const f = $(id).files && $(id).files[0]; $(id).value = ""; if (!f) return;
+        try { st[key] = await fileToCanvas(f, 1600); $("btn-" + id).textContent = (key === "imgL" ? "左: " : "右: ") + f.name.slice(0, 18); }
+        catch (e) { toast(e.message, true); return; }
+        if (st.imgL && st.imgR) compose(st.imgL, st.imgR);
+      }
+      function fileToCanvas(file, maxSide) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file); const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+            const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); resolve(c);
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めません")); };
+          img.src = url;
+        });
+      }
+
+      // ══════════════════════════════════════════════
+      //  合成
+      // ══════════════════════════════════════════════
+      const C = { L: null, R: null, w: 0, h: 0 };
+      function compose(L, R) {
+        // 2 枚を同じ大きさ（長辺 1200）にそろえる
+        const side = 1200;
+        const k = Math.min(1, side / Math.max(L.width, L.height, R.width, R.height));
+        const w = Math.round(Math.min(L.width, R.width) * k), h = Math.round(Math.min(L.height, R.height) * k);
+        C.L = fit(L, w, h); C.R = fit(R, w, h); C.w = w; C.h = h;
+        $("dx").min = -Math.round(w * 0.25); $("dx").max = Math.round(w * 0.25);
+        $("dy").min = -Math.round(h * 0.12); $("dy").max = Math.round(h * 0.12);
+        $("panel-compose").style.display = "";
+        autoAlign();
+        $("panel-compose").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      function fit(src, w, h) {
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        const k = Math.max(w / src.width, h / src.height);
+        const sw = w / k, sh = h / k;
+        c.getContext("2d").drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, w, h);
+        return c;
+      }
+      function gray(c, w, h) {
+        const t = document.createElement("canvas"); t.width = w; t.height = h;
+        const g = t.getContext("2d"); g.drawImage(c, 0, 0, w, h);
+        const d = g.getImageData(0, 0, w, h).data, out = new Float32Array(w * h);
+        for (let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = (d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114);
+        return out;
+      }
+      /** 差の絶対値和が最小になるずれを探す（粗→細）。戻り値 { dx, dy }（合成解像度の px） */
+      function findShift(L, R, w, h) {
+        const sw = 192, sh = Math.round(h * sw / w);
+        const a = gray(L, sw, sh), b = gray(R, sw, sh);
+        const sad = (dx, dy) => {
+          let s = 0, n = 0;
+          const x0 = Math.max(0, dx), x1 = Math.min(sw, sw + dx), y0 = Math.max(0, dy), y1 = Math.min(sh, sh + dy);
+          for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) { s += Math.abs(a[y * sw + x] - b[(y - dy) * sw + (x - dx)]); n++; }
+          return n ? s / n : 1e9;
+        };
+        let best = { dx: 0, dy: 0, v: 1e9 };
+        const rx = Math.round(sw * 0.25), ry = Math.round(sh * 0.12);
+        for (let dy = -ry; dy <= ry; dy += 3) for (let dx = -rx; dx <= rx; dx += 3) { const v = sad(dx, dy); if (v < best.v) best = { dx, dy, v }; }
+        const c0 = best;
+        for (let dy = c0.dy - 3; dy <= c0.dy + 3; dy++) for (let dx = c0.dx - 3; dx <= c0.dx + 3; dx++) { const v = sad(dx, dy); if (v < best.v) best = { dx, dy, v }; }
+        // 高解像度（幅 600）で ±8px を詰める
+        const fw = Math.min(600, w), fh = Math.round(h * fw / w);
+        const fa = gray(L, fw, fh), fb = gray(R, fw, fh);
+        const fsad = (dx, dy) => {
+          let s = 0, n = 0;
+          const x0 = Math.max(0, dx), x1 = Math.min(fw, fw + dx), y0 = Math.max(0, dy), y1 = Math.min(fh, fh + dy);
+          for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) { s += Math.abs(fa[y * fw + x] - fb[(y - dy) * fw + (x - dx)]); n++; }
+          return n ? s / n : 1e9;
+        };
+        const ex = Math.round(best.dx * fw / sw), ey = Math.round(best.dy * fh / sh);
+        let fine = { dx: ex, dy: ey, v: 1e9 };
+        for (let dy = ey - 8; dy <= ey + 8; dy += 2) for (let dx = ex - 8; dx <= ex + 8; dx += 2) { const v = fsad(dx, dy); if (v < fine.v) fine = { dx, dy, v }; }
+        const f0 = fine;
+        for (let dy = f0.dy - 1; dy <= f0.dy + 1; dy++) for (let dx = f0.dx - 1; dx <= f0.dx + 1; dx++) { const v = fsad(dx, dy); if (v < fine.v) fine = { dx, dy, v }; }
+        return { dx: Math.round(fine.dx * w / fw), dy: Math.round(fine.dy * h / fh) };
+      }
+      function autoAlign() {
+        if (!C.L) return;
+        const s = findShift(C.L, C.R, C.w, C.h);
+        st.dx = s.dx; st.dy = s.dy;
+        $("dx").value = st.dx; $("dy").value = st.dy; $("v-dx").textContent = st.dx; $("v-dy").textContent = st.dy;
+        renderPreview();
+      }
+      $("btn-auto").addEventListener("click", autoAlign);
+      $("btn-swap").addEventListener("click", () => { const t = C.L; C.L = C.R; C.R = t; st.dx = -st.dx; st.dy = -st.dy; $("dx").value = st.dx; $("dy").value = st.dy; $("v-dx").textContent = st.dx; $("v-dy").textContent = st.dy; renderPreview(); });
+      $("dx").addEventListener("input", () => { st.dx = Number($("dx").value); $("v-dx").textContent = st.dx; renderPreview(); });
+      $("dy").addEventListener("input", () => { st.dy = Number($("dy").value); $("v-dy").textContent = st.dy; renderPreview(); });
+      $("speed").addEventListener("input", () => { st.speed = Number($("speed").value); $("v-speed").textContent = st.speed; });
+      $("out").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; st.out = b.dataset.out; [...$("out").children].forEach(x => x.classList.toggle("on", x === b)); $("speed-field").style.display = st.out === "wiggle" ? "" : "none"; renderPreview(); });
+
+      /** ずれ分を切り落として、2 枚を同じ枠に収めた canvas を返す { L, R, w, h } */
+      function aligned(scale) {
+        const dx = Math.round(st.dx * scale), dy = Math.round(st.dy * scale);
+        const w = Math.round(C.w * scale), h = Math.round(C.h * scale);
+        const cw = w - Math.abs(dx), ch = h - Math.abs(dy);
+        const make = (src, ox, oy) => { const c = document.createElement("canvas"); c.width = cw; c.height = ch; c.getContext("2d").drawImage(src, ox, oy, cw / scale, ch / scale, 0, 0, cw, ch); return c; };
+        // R を (dx, dy) だけ動かすと L に重なる
+        const L = make(C.L, Math.max(0, dx) / scale, Math.max(0, dy) / scale);
+        const R = make(C.R, Math.max(0, -dx) / scale, Math.max(0, -dy) / scale);
+        return { L, R, w: cw, h: ch };
+      }
+      function drawOutput(a, mode) {
+        const c = document.createElement("canvas");
+        if (mode === "anaglyph") {
+          c.width = a.w; c.height = a.h;
+          const g = c.getContext("2d");
+          const l = a.L.getContext("2d").getImageData(0, 0, a.w, a.h), r = a.R.getContext("2d").getImageData(0, 0, a.w, a.h);
+          const d = l.data, e = r.data;
+          for (let p = 0; p < d.length; p += 4) { d[p + 1] = e[p + 1]; d[p + 2] = e[p + 2]; }
+          g.putImageData(l, 0, 0);
+        } else if (mode === "parallel" || mode === "cross") {
+          const gap = Math.round(a.w * 0.02);
+          c.width = a.w * 2 + gap; c.height = a.h;
+          const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, c.width, c.height);
+          const first = mode === "parallel" ? a.L : a.R, second = mode === "parallel" ? a.R : a.L;
+          g.drawImage(first, 0, 0); g.drawImage(second, a.w + gap, 0);
+        }
+        return c;
+      }
+      function renderPreview() {
+        if (!C.L) return;
+        cancelAnimationFrame(st.anim);
+        const pv = $("preview");
+        const scale = Math.min(1, 800 / C.w);
+        const a = aligned(scale);
+        if (st.out === "wiggle") {
+          pv.width = a.w; pv.height = a.h;
+          const g = pv.getContext("2d");
+          let last = 0, flip = false;
+          const tick = t => { if (t - last >= st.speed) { last = t; flip = !flip; g.drawImage(flip ? a.R : a.L, 0, 0); } st.anim = requestAnimationFrame(tick); };
+          g.drawImage(a.L, 0, 0); st.anim = requestAnimationFrame(tick);
+        } else {
+          const o = drawOutput(a, st.out);
+          pv.width = o.width; pv.height = o.height; pv.getContext("2d").drawImage(o, 0, 0);
+        }
+      }
+
+      // ── 書き出し ──
+      async function exportCurrent() {
+        if (!C.L) return null;
+        if (st.out === "wiggle") {
+          const scale = Math.min(1, 640 / C.w);
+          const a = aligned(scale);
+          const l = a.L.getContext("2d").getImageData(0, 0, a.w, a.h).data, r = a.R.getContext("2d").getImageData(0, 0, a.w, a.h).data;
+          const gif = window.GifEncoder.encodeGif(a.w, a.h, [{ rgba: l, delayMs: st.speed }, { rgba: r, delayMs: st.speed }]);
+          return { blob: new Blob([gif], { type: "image/gif" }), name: "wiggle3d-" + Date.now() + ".gif" };
+        }
+        const o = drawOutput(aligned(1), st.out);
+        const blob = await new Promise(res => o.toBlob(res, st.out === "anaglyph" ? "image/png" : "image/jpeg", 0.92));
+        return { blob, name: st.out + "3d-" + Date.now() + (st.out === "anaglyph" ? ".png" : ".jpg") };
+      }
+      $("btn-export").addEventListener("click", async () => {
+        $("export-status").textContent = "作成中…"; $("btn-export").disabled = true;
+        await new Promise(r => setTimeout(r, 30));
+        try {
+          const out = await exportCurrent(); if (!out) return;
+          $("export-status").innerHTML = "<b>" + out.name + "</b>（" + (out.blob.size / 1024).toFixed(0) + " KB）";
+          try {
+            const file = new File([out.blob], out.name, { type: out.blob.type });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+          } catch (e) { return; }
+          const a = document.createElement("a"); a.href = URL.createObjectURL(out.blob); a.download = out.name; document.body.appendChild(a); a.click(); setTimeout(() => document.body.removeChild(a), 1000);
+        } catch (e) { $("export-status").textContent = "失敗: " + e.message; }
+        finally { $("btn-export").disabled = false; }
+      });
+
+      setMode("parent");
+      window.PHOTO3D = { st, C, compose, findShift, aligned, drawOutput, exportCurrent, setMode, autoAlign, renderPreview };
+    })();
+  </script>
+</body>
+</html>
